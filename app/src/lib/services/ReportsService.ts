@@ -7,7 +7,7 @@ import {
   Report,
   Log,
 } from "marklie-ts-core";
-import type {ReportScheduleRequest} from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
+import type {ReportScheduleRequest, SchedulingOptionMetrics} from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import {CronUtil} from "../utils/CronUtil.js";
 import {ReportQueueService} from "./ReportsQueueService.js";
 
@@ -141,5 +141,11 @@ export class ReportsService {
 
   async getSchedulingOption(uuid: string ) {
     return database.em.findOne(SchedulingOption, {uuid: uuid});
+  }
+
+  async updateReportMetricsSelections(uuid: string, metricsSelections: SchedulingOptionMetrics) {
+    const report = await database.em.findOne(Report, {uuid: uuid});
+    report.metadata.metricsSelections = metricsSelections;
+    await database.em.persistAndFlush(report);
   }
 }

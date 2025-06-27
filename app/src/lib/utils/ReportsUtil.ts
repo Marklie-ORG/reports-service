@@ -70,7 +70,7 @@ export class ReportsUtil {
         metadata: {
           datePreset: data.datePreset,
           reviewNeeded: data.reviewNeeded,
-          metricsSelections: this.convertMetrics(data.metrics),
+          metricsSelections: data.metrics,
           loomLink: "",
           aiGeneratedContent: "",
           userReportDescription: "",
@@ -144,31 +144,6 @@ export class ReportsUtil {
       }
       return { success: false };
     }
-  }
-
-  static convertMetrics(inputObject: SchedulingOptionMetrics): Record<string, {name: string, enabled: boolean, order: number}[]> {
-    const convertedObject: Record<string, {name: string, enabled: boolean, order: number}[]> = {};
-  
-    for (const key in inputObject) {
-      if (Object.prototype.hasOwnProperty.call(inputObject, key)) {
-
-        const stringArray: string[] = inputObject[key as "kpis" | "graphs" | "ads" | "campaigns"].metrics.map(m => m.name);
-  
-        const metricsList: {name: string, enabled: boolean, order: number}[] = [];
-  
-        stringArray.forEach((str: string) => {
-          metricsList.push({
-            name: str,
-            enabled: true,
-            order: 0,
-          });
-        });
-  
-        convertedObject[key] = metricsList;
-      }
-    }
-  
-    return convertedObject;
   }
 
   private static async generateReportPdf(reportUuid: string): Promise<Buffer> {

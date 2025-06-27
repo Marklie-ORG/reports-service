@@ -5,7 +5,8 @@ import { User } from "marklie-ts-core";
 import {
   AVAILABLE_ADS_METRICS, AVAILABLE_CAMPAIGN_METRICS,
   AVAILABLE_GRAPH_METRICS, AVAILABLE_KPI_METRICS,
-  type ReportScheduleRequest
+  type ReportScheduleRequest,
+  type SchedulingOptionMetrics
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 
 export class ReportsController extends Router {
@@ -25,6 +26,10 @@ export class ReportsController extends Router {
     this.put(
       "/scheduling-option/:uuid",
       this.updateSchedulingOption.bind(this),
+    );
+    this.put(
+      "/report-metrics-selections/:uuid",
+      this.updateReportMetricsSelections.bind(this),
     );
   }
 
@@ -89,6 +94,19 @@ export class ReportsController extends Router {
           graphs: Object.keys(AVAILABLE_GRAPH_METRICS),
           ads: Object.keys(AVAILABLE_ADS_METRICS),
           campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS)
+    };
+    ctx.status = 200;
+  }
+
+  private async updateReportMetricsSelections(ctx: Context) {
+    const metricsSelections: SchedulingOptionMetrics = ctx.request
+      .body as SchedulingOptionMetrics;
+    const uuid = ctx.params.uuid as string;
+
+    await this.reportsService.updateReportMetricsSelections(uuid, metricsSelections);
+
+    ctx.body = {
+      message: "Report metrics selections updated successfully",
     };
     ctx.status = 200;
   }

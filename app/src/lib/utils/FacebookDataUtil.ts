@@ -3,7 +3,7 @@ import {
     type Ad,
     AVAILABLE_ADS_METRICS,
     AVAILABLE_CAMPAIGN_METRICS, AVAILABLE_GRAPH_METRICS, AVAILABLE_KPI_METRICS, type AvailableKpiMetric,
-    type AvailableMetrics, type Campaign, type Graph, type KPIs, type ReportData,
+    type Campaign, type Graph, type KPIs, type ReportData,
     type SchedulingOptionMetrics
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 
@@ -65,10 +65,10 @@ export class FacebookDataUtil {
         const ads = result.ads ? await this.processAds(result.ads, selectedAdsMetrics, organizationUuid, accountId) : [];
 
         const reportData: ReportData = {
-            ads: ads,
             KPIs: result.KPIs?.length ? this.normalizeKPIs(result.KPIs[0], selectedKpiMetrics) : null,
-            campaigns: result.campaigns ? this.normalizeCampaigns(result.campaigns, campaignMetrics) : [],
             graphs: result.graphs ? this.normalizeGraphs(result.graphs, selectedGraphsMetrics) : [],
+            ads: ads,
+            campaigns: result.campaigns ? this.normalizeCampaigns(result.campaigns, campaignMetrics) : []
         };
 
         return reportData;
