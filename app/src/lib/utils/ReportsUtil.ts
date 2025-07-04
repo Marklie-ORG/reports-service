@@ -14,7 +14,6 @@ import puppeteer from "puppeteer";
 import type {
   ReportJobData,
   ReportScheduleRequest,
-  SchedulingOptionMetrics,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import {AxiosError} from "axios";
 import {FacebookDataUtil} from "./FacebookDataUtil.js";
@@ -44,20 +43,20 @@ export class ReportsUtil {
         client: data.clientUuid
       });
 
-      const adAccountReports = []
-
-      for (const adAccount of adAccounts) {
+      const reportPromises = adAccounts.map(async (adAccount: ClientFacebookAdAccount) => {
         const reportData = await FacebookDataUtil.getAllReportData(
             data.organizationUuid,
             adAccount.adAccountId,
             data.datePreset,
             data.metrics
         );
-        adAccountReports.push({
+        return {
           adAccountId: adAccount.adAccountId,
           ...reportData,
-        });
-      }
+        };
+      });
+
+      const adAccountReports = await Promise.all(reportPromises);
 
       logger.info("Fetched all report Data.")
 
@@ -146,16 +145,17 @@ export class ReportsUtil {
     }
   }
 
-  private static async generateReportPdf(reportUuid: string): Promise<Buffer> {
+  public static async generateReportPdf(reportUuid: string): Promise<Buffer> {
     const isProduction = process.env.ENVIRONMENT === "production";
-    const baseUrl =
-        isProduction
-            ? "https://marklie.com"
-            : "http://localhost:4200";
+    const baseUrl = isProduction ? "https://marklie.com" : "http://localhost:4200";
 
     const browser = await puppeteer.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      defaultViewport: {
+        width: 1600,
+        height: 1000,
+      },
     });
 
     try {
@@ -165,13 +165,18 @@ export class ReportsUtil {
         timeout: 120000,
       });
 
-      await page.emulateMediaType('print');
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await page.waitForSelector('.graph-section');
+
+      const dashboardHeight = await page.evaluate(() => {
+        const el = document.querySelector('.dashboard');
+        return el ? el.scrollHeight : 2000;
+      });
+
       const pdf = await page.pdf({
-        format: 'A4',
-        landscape: true,
         printBackground: true,
-        timeout: 120000,
+        width: '1600px',
+        height: `${dashboardHeight}px`,
+        pageRanges: '1',
       });
 
       return Buffer.from(pdf);
