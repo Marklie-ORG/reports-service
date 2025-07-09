@@ -6,7 +6,8 @@ import {
   AVAILABLE_ADS_METRICS, AVAILABLE_CAMPAIGN_METRICS,
   AVAILABLE_GRAPH_METRICS, AVAILABLE_KPI_METRICS,
   type ReportScheduleRequest,
-  type SchedulingOptionMetrics
+  type SchedulingOptionMetrics,
+  type SendAfterReviewRequest
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 
 export class ReportsController extends Router {
@@ -22,6 +23,7 @@ export class ReportsController extends Router {
     this.get("/:uuid", this.getReport.bind(this));
     this.get("/", this.getReports.bind(this));
     this.post("/schedule", this.scheduleReport.bind(this));
+    this.post("/send-after-review", this.sendAfterReview.bind(this));
     this.get("/scheduling-option/:uuid", this.getSchedulingOption.bind(this));
     this.put(
       "/scheduling-option/:uuid",
@@ -64,6 +66,20 @@ export class ReportsController extends Router {
     ctx.status = 201;
   }
 
+  private async sendAfterReview(ctx: Context) {
+    const body = ctx.request.body as SendAfterReviewRequest;
+
+    const scheduleUuid: string | void = await this.reportsService.sendReportAfterReview(
+        body.reportUuid
+    );
+
+    ctx.body = {
+      message: "Report was saved and sent to the client",
+      uuid: scheduleUuid
+    };
+    ctx.status = 201;
+  }
+
   private async updateSchedulingOption(ctx: Context) {
     const user: User = ctx.state.user as User;
     const scheduleOption: ReportScheduleRequest = ctx.request
@@ -90,7 +106,7 @@ export class ReportsController extends Router {
 
   private async getAvailableMetrics(ctx: Context) {
       ctx.body = {
-          kpis: Object.keys(AVAILABLE_KPI_METRICS),
+          KPIs: Object.keys(AVAILABLE_KPI_METRICS),
           graphs: Object.keys(AVAILABLE_GRAPH_METRICS),
           ads: Object.keys(AVAILABLE_ADS_METRICS),
           campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS)

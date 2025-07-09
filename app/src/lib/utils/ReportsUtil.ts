@@ -197,7 +197,7 @@ export class ReportsUtil {
     }
   }
 
-  private static generateFilePath(clientUuid: string, preset: string) {
+  public static generateFilePath(clientUuid: string, preset: string) {
     const today = new Date().toISOString().split("T")[0];
     return `report/${clientUuid}-facebook-report-${preset}-${today}.pdf`;
   }
