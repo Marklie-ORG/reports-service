@@ -2,17 +2,18 @@ import Koa from "koa";
 import koabodyparser from "koa-bodyparser";
 import cors from "@koa/cors";
 import "dotenv/config";
-import {
-    ActivityLogMiddleware,
-    AuthMiddleware,
-    CookiesMiddleware,
-    Database,
-    ErrorMiddleware,
-    Log,
-    ValidationMiddleware,
-} from "marklie-ts-core";
+
 import { ReportQueueService } from "./lib/services/ReportsQueueService.js";
 import { ReportsController } from "./lib/controllers/ReportsController.js";
+import {
+  ActivityLogMiddleware,
+  AuthMiddleware,
+  CookiesMiddleware,
+  Database,
+  ErrorMiddleware,
+  Log,
+  ValidationMiddleware,
+} from "marklie-ts-core";
 
 const app = new Koa();
 const logger = Log.getInstance().extend("service");

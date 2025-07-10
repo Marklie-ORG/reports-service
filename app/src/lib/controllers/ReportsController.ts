@@ -3,11 +3,13 @@ import type { Context } from "koa";
 import { ReportsService } from "../services/ReportsService.js";
 import { User } from "marklie-ts-core";
 import {
-  AVAILABLE_ADS_METRICS, AVAILABLE_CAMPAIGN_METRICS,
-  AVAILABLE_GRAPH_METRICS, AVAILABLE_KPI_METRICS,
+  AVAILABLE_ADS_METRICS,
+  AVAILABLE_CAMPAIGN_METRICS,
+  AVAILABLE_GRAPH_METRICS,
+  AVAILABLE_KPI_METRICS,
   type ReportScheduleRequest,
   type SchedulingOptionMetrics,
-  type SendAfterReviewRequest
+  type SendAfterReviewRequest,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 
 export class ReportsController extends Router {
@@ -45,7 +47,9 @@ export class ReportsController extends Router {
   private async getReports(ctx: Context) {
     const user = ctx.state.user as User;
 
-    ctx.body = await this.reportsService.getReports(user.activeOrganization.uuid);
+    ctx.body = await this.reportsService.getReports(
+      user.activeOrganization.uuid,
+    );
     ctx.status = 200;
   }
 
@@ -54,14 +58,15 @@ export class ReportsController extends Router {
     const scheduleOption: ReportScheduleRequest = ctx.request
       .body as ReportScheduleRequest;
 
-    const scheduleUuid: string | void = await this.reportsService.scheduleReport({
-      ...scheduleOption,
-      organizationUuid: user.activeOrganization.uuid,
-    });
+    const scheduleUuid: string | void =
+      await this.reportsService.scheduleReport({
+        ...scheduleOption,
+        organizationUuid: user.activeOrganization.uuid,
+      });
 
     ctx.body = {
       message: "Report schedule created successfully",
-        uuid: scheduleUuid
+      uuid: scheduleUuid,
     };
     ctx.status = 201;
   }
@@ -69,13 +74,12 @@ export class ReportsController extends Router {
   private async sendAfterReview(ctx: Context) {
     const body = ctx.request.body as SendAfterReviewRequest;
 
-    const scheduleUuid: string | void = await this.reportsService.sendReportAfterReview(
-        body.reportUuid
-    );
+    const scheduleUuid: string | void =
+      await this.reportsService.sendReportAfterReview(body.reportUuid);
 
     ctx.body = {
       message: "Report was saved and sent to the client",
-      uuid: scheduleUuid
+      uuid: scheduleUuid,
     };
     ctx.status = 201;
   }
@@ -105,11 +109,11 @@ export class ReportsController extends Router {
   }
 
   private async getAvailableMetrics(ctx: Context) {
-      ctx.body = {
-          KPIs: Object.keys(AVAILABLE_KPI_METRICS),
-          graphs: Object.keys(AVAILABLE_GRAPH_METRICS),
-          ads: Object.keys(AVAILABLE_ADS_METRICS),
-          campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS)
+    ctx.body = {
+      KPIs: Object.keys(AVAILABLE_KPI_METRICS),
+      graphs: Object.keys(AVAILABLE_GRAPH_METRICS),
+      ads: Object.keys(AVAILABLE_ADS_METRICS),
+      campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS),
     };
     ctx.status = 200;
   }
@@ -119,7 +123,10 @@ export class ReportsController extends Router {
       .body as SchedulingOptionMetrics;
     const uuid = ctx.params.uuid as string;
 
-    await this.reportsService.updateReportMetricsSelections(uuid, metricsSelections);
+    await this.reportsService.updateReportMetricsSelections(
+      uuid,
+      metricsSelections,
+    );
 
     ctx.body = {
       message: "Report metrics selections updated successfully",
