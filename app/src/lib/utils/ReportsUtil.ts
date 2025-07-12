@@ -43,7 +43,7 @@ export class ReportsUtil {
       );
       await this.updateLastRun(client.uuid, data.timeZone);
 
-      if (!data.reviewNeeded) {
+      if (!data.reviewRequired) {
         report.gcsUrl = await this.generateAndUploadPdf(
           report.uuid,
           client.uuid,
@@ -114,7 +114,7 @@ export class ReportsUtil {
       organization: client.organization,
       client: client,
       reportType: "facebook",
-      reviewNeeded: data.reviewNeeded,
+      reviewRequired: data.reviewRequired,
       gcsUrl: "",
       data: adAccountReports,
       metadata: {
@@ -157,12 +157,12 @@ export class ReportsUtil {
     client: OrganizationClient,
     report: Report,
   ): Promise<void> {
-    const topic = data.reviewNeeded
+    const topic = data.reviewRequired
       ? "notification-report-ready"
       : "notification-send-report";
 
     const payload = {
-      reportUrl: data.reviewNeeded ? "" : report.gcsUrl,
+      reportUrl: data.reviewRequired ? "" : report.gcsUrl,
       clientUuid: client.uuid,
       organizationUuid: client.organization.uuid,
       reportUuid: report.uuid,
@@ -246,7 +246,9 @@ export class ReportsUtil {
     });
 
     if (option) {
-      option.lastRun = Temporal.Now.zonedDateTimeISO(timeZone).toString();
+      option.lastRun = new Date(
+        Temporal.Now.zonedDateTimeISO(timeZone).toInstant().epochMilliseconds,
+      );
       await database.em.flush();
     }
   }

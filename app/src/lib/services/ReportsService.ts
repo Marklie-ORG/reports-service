@@ -1,4 +1,3 @@
-import { CronUtil } from "lib/utils/CronUtil";
 import { ReportsUtil } from "../utils/ReportsUtil.js";
 import {
   ActivityLog,
@@ -7,15 +6,18 @@ import {
   Log,
   OrganizationClient,
   PubSubWrapper,
+  Report,
   ScheduledJob,
   SchedulingOption,
 } from "marklie-ts-core";
 import { ReportQueueService } from "./ReportsQueueService.js";
 import type {
+  ReportJobData,
   ReportScheduleRequest,
   SchedulingOptionMetrics,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { Temporal } from "@js-temporal/polyfill";
+import { CronUtil } from "lib/utils/CronUtil.js";
 
 const database = await Database.getInstance();
 const logger = Log.getInstance().extend("reports-service");
@@ -45,6 +47,10 @@ export class ReportsService {
         cronExpression,
       );
 
+      if (!job) {
+        throw new Error("Job was not created");
+      }
+
       const scheduledJob = new ScheduledJob();
       scheduledJob.bullJobId = job.id as string;
       scheduledJob.schedulingOption = schedule;
@@ -63,27 +69,47 @@ export class ReportsService {
     scheduleOption: ReportScheduleRequest,
   ): Promise<string | void> {
     try {
-      const schedule = await database.em.findOne(SchedulingOption, { uuid });
-      if (!schedule) throw new Error(`SchedulingOption ${uuid} not found`);
+      const schedule = await database.em.findOne(
+        SchedulingOption,
+        {
+          uuid,
+        },
+        { populate: ["scheduledJob", "client"] },
+      );
 
-      const client = await database.em.findOne(OrganizationClient, {
-        uuid: schedule.client.uuid,
-      });
-
-      if (!client)
-        throw new Error(`Client with UUID ${schedule.client.uuid} not found`);
+      if (!schedule) {
+        throw new Error(`SchedulingOption ${uuid} not found`);
+      }
 
       const queue = ReportQueueService.getInstance();
-      await queue.removeScheduledJob(schedule.bullJobId);
+
+      if (schedule.scheduledJob?.bullJobId) {
+        await queue.removeScheduledJob(schedule.scheduledJob.bullJobId);
+      }
+
+      const client = schedule.client;
 
       this.assignScheduleFields(schedule, scheduleOption, client);
 
       const jobPayload = this.buildJobPayload(scheduleOption, client);
       const cronExpression =
         CronUtil.convertScheduleRequestToCron(scheduleOption);
+
       const job = await queue.scheduleReport(jobPayload, cronExpression);
 
-      schedule.bullJobId = job.id as string;
+      if (!job) {
+        throw new Error("Job was not created");
+      }
+
+      let scheduledJob = schedule.scheduledJob;
+      if (!scheduledJob) {
+        scheduledJob = new ScheduledJob();
+        scheduledJob.schedulingOption = schedule;
+        schedule.scheduledJob = scheduledJob;
+      }
+
+      scheduledJob.bullJobId = job.id as string;
+      scheduledJob.lastRunAt = null;
 
       await database.em.persistAndFlush(schedule);
       return cronExpression;
@@ -92,11 +118,14 @@ export class ReportsService {
     }
   }
 
-  async getReport(uuid: string) {
+  async getReport(uuid: string): Promise<Report | null> {
     return database.em.findOne(Report, { uuid });
   }
 
-  async getReports(organizationUuid: string) {
+  async getReports(organizationUuid: string | undefined): Promise<Report[]> {
+    if (!organizationUuid) {
+      throw new Error("No organization Uuid");
+    }
     return database.em.find(
       Report,
       { organization: organizationUuid },
@@ -104,7 +133,7 @@ export class ReportsService {
     );
   }
 
-  async getSchedulingOption(uuid: string) {
+  async getSchedulingOption(uuid: string): Promise<SchedulingOption | null> {
     return database.em.findOne(SchedulingOption, { uuid });
   }
 
@@ -113,8 +142,12 @@ export class ReportsService {
     metricsSelections: SchedulingOptionMetrics,
   ) {
     const report = await database.em.findOne(Report, { uuid });
-    if (!report) throw new Error(`Report ${uuid} not found`);
-    report.metadata.metricsSelections = metricsSelections;
+
+    if (!report) {
+      throw new Error(`Report ${uuid} not found`);
+    }
+
+    report.metadata!.metricsSelections = metricsSelections;
     await database.em.persistAndFlush(report);
   }
 
@@ -125,7 +158,7 @@ export class ReportsService {
     const pdfBuffer = await ReportsUtil.generateReportPdf(uuid);
     const filePath = ReportsUtil.generateFilePath(
       report.client.uuid,
-      report.metadata.datePreset,
+      report.metadata?.datePreset,
     );
 
     const gcs = GCSWrapper.getInstance("marklie-client-reports");
@@ -136,9 +169,15 @@ export class ReportsService {
       false,
       false,
     );
-    report.reviewedAt = Temporal.Now.zonedDateTimeISO(
-      report.metadata.timeZone,
-    ).toString();
+    const plainDate = Temporal.Now.zonedDateTimeISO(
+      report.metadata?.timeZone,
+    ).toPlainDate();
+    report.reviewedAt = new Date(
+      plainDate.toZonedDateTime({
+        timeZone: report.metadata?.timeZone,
+        plainTime: "00:00",
+      }).epochMilliseconds,
+    );
 
     await database.em.flush();
 
@@ -146,7 +185,7 @@ export class ReportsService {
       clientUuid: report.client.uuid,
       organizationUuid: report.organization.uuid,
       reportUuid: report.uuid,
-      messages: report.metadata.messages,
+      messages: report.metadata?.messages,
     };
 
     logger.info("Sending reviewed report to notification service.");
@@ -172,22 +211,26 @@ export class ReportsService {
   ) {
     schedule.cronExpression = CronUtil.convertScheduleRequestToCron(option);
     schedule.client = database.em.getReference(OrganizationClient, client.uuid);
-    schedule.reportType = option.frequency;
     schedule.jobData = option as any;
     schedule.timezone = option.timeZone;
     schedule.datePreset = option.datePreset;
-    schedule.reportName = option.reportName;
-    schedule.nextRun = ReportsUtil.getNextRunDate(option).toString();
+    schedule.reportName = option.reportName ? option.reportName : "";
+    const plainDate = ReportsUtil.getNextRunDate(option).toPlainDate();
+    schedule.nextRun = new Date(
+      plainDate.toZonedDateTime({
+        timeZone: option.timeZone,
+        plainTime: "00:00",
+      }).epochMilliseconds,
+    );
   }
 
   private buildJobPayload(
     option: ReportScheduleRequest,
     client: OrganizationClient,
-  ) {
+  ): ReportJobData {
     return {
       ...option,
       organizationUuid: client.organization.uuid,
-      accountId: client.accountId,
     };
   }
 }

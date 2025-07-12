@@ -37,14 +37,11 @@ export class ReportQueueService {
     return await this.queue.listScheduledJobs();
   }
 
-  public async scheduleReport(data: ReportJobData, cron: string): Promise<Job> {
-    return await this.queue.addScheduledJob("generate-report", data, cron, {
-      attempts: 5,
-      backoff: {
-        type: "exponential",
-        delay: 30_000,
-      },
-    });
+  public async scheduleReport(
+    data: ReportJobData,
+    cron: string,
+  ): Promise<Job | undefined> {
+    return await this.queue.addScheduledJob("generate-report", data, cron);
   }
 
   public async enqueueReport(data: ReportJobData): Promise<Job> {

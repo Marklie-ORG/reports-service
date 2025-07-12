@@ -48,7 +48,7 @@ export class ReportsController extends Router {
     const user = ctx.state.user as User;
 
     ctx.body = await this.reportsService.getReports(
-      user.activeOrganization.uuid,
+      user.activeOrganization?.uuid,
     );
     ctx.status = 200;
   }
@@ -61,7 +61,7 @@ export class ReportsController extends Router {
     const scheduleUuid: string | void =
       await this.reportsService.scheduleReport({
         ...scheduleOption,
-        organizationUuid: user.activeOrganization.uuid,
+        organizationUuid: user.activeOrganization!.uuid,
       });
 
     ctx.body = {
@@ -92,7 +92,7 @@ export class ReportsController extends Router {
 
     await this.reportsService.updateSchedulingOption(uuid, {
       ...scheduleOption,
-      organizationUuid: user.activeOrganization.uuid,
+      organizationUuid: user.activeOrganization!.uuid,
     });
 
     ctx.body = {
