@@ -110,7 +110,7 @@ export class ReportsController extends Router {
 
   private async getAvailableMetrics(ctx: Context) {
     ctx.body = {
-      KPIs: Object.keys(AVAILABLE_KPI_METRICS),
+      kpis: Object.keys(AVAILABLE_KPI_METRICS),
       graphs: Object.keys(AVAILABLE_GRAPH_METRICS),
       ads: Object.keys(AVAILABLE_ADS_METRICS),
       campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS),
