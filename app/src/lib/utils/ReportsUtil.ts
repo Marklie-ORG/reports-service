@@ -1,202 +1,237 @@
-import { DateTime, type WeekdayNumbers } from "luxon";
 import {
+  ActivityLog,
+  ClientFacebookAdAccount,
   Database,
   GCSWrapper,
   Log,
   OrganizationClient,
-  SchedulingOption,
-  Report,
-  ClientFacebookAdAccount,
   PubSubWrapper,
-  ActivityLog,
+  Report,
+  SchedulingOption,
 } from "marklie-ts-core";
 import puppeteer from "puppeteer";
 import type {
   ReportJobData,
   ReportScheduleRequest,
-  SchedulingOptionMetrics,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
-import {AxiosError} from "axios";
-import {FacebookDataUtil} from "./FacebookDataUtil.js";
+import { AxiosError } from "axios";
+import { FacebookDataUtil } from "./FacebookDataUtil.js";
+import { Temporal } from "@js-temporal/polyfill";
 
 const logger: Log = Log.getInstance().extend("reports-util");
 const database = await Database.getInstance();
 
 export class ReportsUtil {
-  public static async processScheduledReportJob(data: ReportJobData) {
+  public static async processScheduledReportJob(
+    data: ReportJobData,
+  ): Promise<{ success: boolean }> {
     try {
       logger.info(`Generating report for Client UUID: ${data.clientUuid}`);
 
-      const client = await database.em.findOne(
-          OrganizationClient,
-          {uuid: data.clientUuid},
-          {
-            populate: ["organization"],
-          },
+      const client = await this.getClient(data.clientUuid);
+      if (!client) return { success: false };
+
+      const adAccountReports = await this.generateAdAccountReports(
+        data,
+        client.uuid,
       );
 
-      if (!client) {
-        logger.error(`Client with UUID ${data.clientUuid} not found.`);
-        return {success: false};
-      }
+      const report = await this.saveReportEntity(
+        data,
+        client,
+        adAccountReports,
+      );
+      await this.updateLastRun(client.uuid, data.timeZone);
 
-      const adAccounts: ClientFacebookAdAccount = await database.em.find(ClientFacebookAdAccount, {
-        client: data.clientUuid
-      });
-
-      const adAccountReports = []
-
-      for (const adAccount of adAccounts) {
-        const reportData = await FacebookDataUtil.getAllReportData(
-            data.organizationUuid,
-            adAccount.adAccountId,
-            data.datePreset,
-            data.metrics
+      if (!data.reviewRequired) {
+        report.gcsUrl = await this.generateAndUploadPdf(
+          report.uuid,
+          client.uuid,
+          data.datePreset,
         );
-        adAccountReports.push({
-          adAccountId: adAccount.adAccountId,
-          ...reportData,
-        });
-      }
-
-      logger.info("Fetched all report Data.")
-
-      const report = database.em.create(Report, {
-        organization: client.organization,
-        client: client,
-        reportType: 'facebook',
-        gcsUrl: "",
-        data: adAccountReports,
-        metadata: {
-          datePreset: data.datePreset,
-          reviewNeeded: data.reviewNeeded,
-          metricsSelections: this.convertMetrics(data.metrics),
-          loomLink: "",
-          aiGeneratedContent: "",
-          userReportDescription: "",
-          messages: data.messages
-        },
-      });
-
-      database.em.persist(report);
-      await database.em.flush();
-
-      await this.updateLastRun(client.uuid);
-
-      logger.info("Generating PDF.")
-
-      let publicPdfUrl = "";
-
-      if (!data.reviewNeeded) {
-        const pdfBuffer = await this.generateReportPdf(report.uuid);
-
-        const filePath = this.generateFilePath(client.uuid, data.datePreset);
-        const gcs = GCSWrapper.getInstance('marklie-client-reports');
-
-        publicPdfUrl = await gcs.uploadBuffer(
-            pdfBuffer,
-            filePath,
-            'application/pdf',
-            false,
-            false
-        );
-
-        report.gcsUrl = publicPdfUrl;
         await database.em.flush();
       }
 
-      const payload = {
-        reportUrl: data.reviewNeeded ? "" : publicPdfUrl,
-        clientUuid: client.uuid,
-        organizationUuid: client.organization.uuid,
-        reportUuid: report.uuid,
-        messages: data.messages
-      };
-
-      const topic = data.reviewNeeded
-          ? "notification-report-ready"
-          : "notification-send-report";
-
-      logger.info("Sending to notification.")
-
-      await PubSubWrapper.publishMessage(topic, payload);
-
-      const log = database.em.create(ActivityLog, {
-        organization: client.organization.uuid,
-        action: 'report_generated',
-        targetType: 'report',
-        targetUuid: report.uuid,
-        client: client.uuid,
-        metadata: {
-          frequency: ""
-        },
-        actor: 'system'
-      });
-
-      await database.em.persistAndFlush(log);
+      await this.publishReportNotification(data, client, report);
+      await this.logReportGeneration(client, report.uuid);
 
       return { success: true };
     } catch (e) {
-      if (e && e instanceof AxiosError){
-        console.error(e.response!.data);
-      }else {
-        console.error("Failed to process scheduled report job:", e);
-      }
+      this.handleProcessingError(e);
       return { success: false };
     }
   }
 
-  static convertMetrics(inputObject: SchedulingOptionMetrics): Record<string, {name: string, enabled: boolean, order: number}[]> {
-    const convertedObject: Record<string, {name: string, enabled: boolean, order: number}[]> = {};
-  
-    for (const key in inputObject) {
-      if (Object.prototype.hasOwnProperty.call(inputObject, key)) {
+  private static async getClient(
+    clientUuid: string,
+  ): Promise<OrganizationClient | null> {
+    const client = await database.em.findOne(
+      OrganizationClient,
+      { uuid: clientUuid },
+      { populate: ["organization"] },
+    );
 
-        const stringArray: string[] = inputObject[key as "kpis" | "graphs" | "ads" | "campaigns"].metrics.map(m => m.name);
-  
-        const metricsList: {name: string, enabled: boolean, order: number}[] = [];
-  
-        stringArray.forEach((str: string) => {
-          metricsList.push({
-            name: str,
-            enabled: true,
-            order: 0,
-          });
-        });
-  
-        convertedObject[key] = metricsList;
-      }
+    if (!client) {
+      logger.error(`Client with UUID ${clientUuid} not found.`);
     }
-  
-    return convertedObject;
+
+    return client;
   }
 
-  private static async generateReportPdf(reportUuid: string): Promise<Buffer> {
+  private static async generateAdAccountReports(
+    data: ReportJobData,
+    clientUuid: string,
+  ): Promise<any[]> {
+    const adAccounts = await database.em.find(ClientFacebookAdAccount, {
+      client: clientUuid,
+    });
+
+    const reportPromises = adAccounts.map(
+      (adAccount: ClientFacebookAdAccount) =>
+        FacebookDataUtil.getAllReportData(
+          data.organizationUuid,
+          adAccount.adAccountId,
+          data.datePreset,
+          data.metrics,
+        ).then((reportData) => ({
+          adAccountId: adAccount.adAccountId,
+          ...reportData,
+        })),
+    );
+
+    const adAccountReports = await Promise.all(reportPromises);
+
+    logger.info("Fetched all report data.");
+    return adAccountReports;
+  }
+
+  private static async saveReportEntity(
+    data: ReportJobData,
+    client: OrganizationClient,
+    adAccountReports: any[],
+  ): Promise<Report> {
+    const report = database.em.create(Report, {
+      organization: client.organization,
+      client: client,
+      reportType: "facebook",
+      reviewRequired: data.reviewRequired,
+      gcsUrl: "",
+      data: adAccountReports,
+      metadata: {
+        timeZone: data.timeZone,
+        datePreset: data.datePreset,
+        metricsSelections: data.metrics,
+        loomLink: "",
+        aiGeneratedContent: "",
+        userReportDescription: "",
+        messages: data.messages,
+      },
+    });
+
+    await database.em.persistAndFlush(report);
+    return report;
+  }
+
+  private static async generateAndUploadPdf(
+    reportUuid: string,
+    clientUuid: string,
+    datePreset: string,
+  ): Promise<string> {
+    logger.info("Generating PDF.");
+
+    const pdfBuffer = await this.generateReportPdf(reportUuid);
+    const filePath = this.generateFilePath(clientUuid, datePreset);
+    const gcs = GCSWrapper.getInstance("marklie-client-reports");
+
+    return await gcs.uploadBuffer(
+      pdfBuffer,
+      filePath,
+      "application/pdf",
+      false,
+      false,
+    );
+  }
+
+  private static async publishReportNotification(
+    data: ReportJobData,
+    client: OrganizationClient,
+    report: Report,
+  ): Promise<void> {
+    const topic = data.reviewRequired
+      ? "notification-report-ready"
+      : "notification-send-report";
+
+    const payload = {
+      reportUrl: data.reviewRequired ? "" : report.gcsUrl,
+      clientUuid: client.uuid,
+      organizationUuid: client.organization.uuid,
+      reportUuid: report.uuid,
+      messages: data.messages,
+    };
+
+    logger.info("Publishing report notification.");
+    await PubSubWrapper.publishMessage(topic, payload);
+  }
+
+  private static async logReportGeneration(
+    client: OrganizationClient,
+    reportUuid: string,
+  ): Promise<void> {
+    const log = database.em.create(ActivityLog, {
+      organization: client.organization.uuid,
+      action: "report_generated",
+      targetType: "report",
+      targetUuid: reportUuid,
+      client: client.uuid,
+      metadata: { frequency: "" },
+      actor: "system",
+    });
+
+    await database.em.persistAndFlush(log);
+  }
+
+  private static handleProcessingError(error: unknown): void {
+    if (error instanceof AxiosError && error.response) {
+      console.error(error.response.data);
+    } else {
+      console.error("Failed to process scheduled report job:", error);
+    }
+  }
+
+  public static async generateReportPdf(reportUuid: string): Promise<Buffer> {
     const isProduction = process.env.ENVIRONMENT === "production";
-    const baseUrl =
-        isProduction
-            ? "https://marklie.com"
-            : "http://localhost:4200";
+    const baseUrl = isProduction
+      ? "https://marklie.com"
+      : "http://localhost:4200";
 
     const browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      defaultViewport: {
+        width: 1600,
+        height: 1000,
+      },
     });
 
     try {
       const page = await browser.newPage();
       await page.goto(`${baseUrl}/pdf-report/${reportUuid}`, {
-        waitUntil: 'domcontentloaded',
+        waitUntil: "domcontentloaded",
         timeout: 120000,
       });
 
-      await page.emulateMediaType('print');
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await page.waitForSelector(".graph-section");
+
+      const dashboardHeight = await page.evaluate(() => {
+        const el = document.querySelector(".dashboard");
+        return el ? el.scrollHeight : 2000;
+      });
+
       const pdf = await page.pdf({
-        format: 'A4',
-        landscape: true,
         printBackground: true,
-        timeout: 120000,
+        width: "1600px",
+        height: `${dashboardHeight}px`,
+        pageRanges: "1",
       });
 
       return Buffer.from(pdf);
@@ -205,24 +240,25 @@ export class ReportsUtil {
     }
   }
 
-  //todo:fix
-  private static async updateLastRun(clientUuid: string) {
+  private static async updateLastRun(clientUuid: string, timeZone: string) {
     const option = await database.em.findOne(SchedulingOption, {
       client: clientUuid,
     });
 
     if (option) {
-      option.lastRun = new Date();
+      option.lastRun = new Date(
+        Temporal.Now.zonedDateTimeISO(timeZone).toInstant().epochMilliseconds,
+      );
       await database.em.flush();
     }
   }
 
-  private static generateFilePath(clientUuid: string, preset: string) {
+  public static generateFilePath(clientUuid: string, preset: string) {
     const today = new Date().toISOString().split("T")[0];
     return `report/${clientUuid}-facebook-report-${preset}-${today}.pdf`;
   }
 
-  private static getWeekday(day: string): WeekdayNumbers {
+  private static getWeekday(day: string) {
     switch (day) {
       case "Monday":
         return 1;
@@ -243,82 +279,75 @@ export class ReportsUtil {
     }
   }
 
-  public static getNextRunDate(scheduleOption: ReportScheduleRequest) {
-    const tz = scheduleOption.timeZone || "UTC";
-    const now = DateTime.now().setZone(tz);
-    let nextRun: DateTime;
+  public static getNextRunDate(
+    scheduleOption: ReportScheduleRequest,
+  ): Temporal.ZonedDateTime {
+    const timeZone = scheduleOption.timeZone || "UTC";
+    const now = Temporal.Now.zonedDateTimeISO(timeZone);
+
+    let nextRun: Temporal.ZonedDateTime;
+
+    const [hour, minute] = scheduleOption.time.split(":").map(Number);
 
     switch (scheduleOption.frequency) {
       case "weekly": {
-        const targetWeekday: WeekdayNumbers = this.getWeekday(
-            scheduleOption.dayOfWeek,
-        );
-        const [hour, minute] = scheduleOption.time.split(":").map(Number);
-        nextRun = now.set({
-          weekday: targetWeekday,
-          hour: hour,
-          minute: minute,
-          second: 0,
-          millisecond: 0,
-        });
-        if (nextRun < now) {
-          nextRun = nextRun.plus({weeks: 1});
-        }
-        break;
-      }
-      case "biweekly": {
-        const targetWeekday: WeekdayNumbers = this.getWeekday(
-            scheduleOption.dayOfWeek,
-        );
-        const [hour, minute] = scheduleOption.time.split(":").map(Number);
+        const targetWeekday = this.getWeekday(scheduleOption.dayOfWeek); // 1 = Monday, 7 = Sunday
 
-        nextRun = now.set({
-          weekday: targetWeekday,
-          hour: hour,
-          minute: minute,
-          second: 0,
-          millisecond: 0,
-        });
-        if (nextRun < now) {
-          nextRun = nextRun.plus({weeks: 2});
-        }
+        nextRun = now.with({ hour, minute, second: 0, millisecond: 0 });
+
+        const daysUntilTarget = (targetWeekday + 7 - now.dayOfWeek) % 7 || 7;
+
+        nextRun = nextRun.add({ days: daysUntilTarget });
+
         break;
       }
+
+      case "biweekly": {
+        const targetWeekday = this.getWeekday(scheduleOption.dayOfWeek);
+
+        nextRun = now.with({ hour, minute, second: 0, millisecond: 0 });
+        const daysUntilTarget = (targetWeekday + 7 - now.dayOfWeek) % 7 || 7;
+
+        nextRun = nextRun.add({ days: daysUntilTarget });
+
+        if (nextRun <= now) {
+          nextRun = nextRun.add({ days: 14 });
+        }
+
+        break;
+      }
+
       case "monthly": {
-        const [hour, minute] = scheduleOption.time.split(":").map(Number);
-        nextRun = now.set({
-          day: scheduleOption.dayOfMonth,
-          hour: hour,
-          minute: minute,
+        const day = scheduleOption.dayOfMonth;
+        const proposed = now.with({
+          day,
+          hour,
+          minute,
           second: 0,
           millisecond: 0,
         });
-        if (nextRun < now) {
-          nextRun = nextRun.plus({months: 1});
-        }
+
+        nextRun = proposed < now ? proposed.add({ months: 1 }) : proposed;
+
         break;
       }
+
       case "custom": {
-        const [hour, minute] = scheduleOption.time.split(":").map(Number);
-        nextRun = now.set({
-          hour: hour,
-          minute: minute,
-          second: 0,
-          millisecond: 0,
-        });
-        if (nextRun < now) {
-          nextRun = now.plus({days: scheduleOption.intervalDays});
-        } else {
-          nextRun = nextRun.plus({
-            days: scheduleOption.intervalDays,
-          });
-        }
+        const interval = scheduleOption.intervalDays ?? 1;
+        const custom = now.with({ hour, minute, second: 0, millisecond: 0 });
+
+        nextRun =
+          custom <= now
+            ? now.add({ days: interval })
+            : custom.add({ days: interval });
+
         break;
       }
-      default: {
+
+      default:
         nextRun = now;
-      }
     }
+
     return nextRun;
   }
 }
