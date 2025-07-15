@@ -6,7 +6,6 @@ import "dotenv/config";
 import { ReportQueueService } from "./lib/services/ReportsQueueService.js";
 import { ReportsController } from "./lib/controllers/ReportsController.js";
 import {
-  ActivityLogMiddleware,
   AuthMiddleware,
   CookiesMiddleware,
   Database,
@@ -45,7 +44,7 @@ app.use(koabodyparser());
 app.use(CookiesMiddleware);
 app.use(AuthMiddleware([/^\/api\/reports\/[^/]+$/]));
 app.use(ValidationMiddleware());
-app.use(ActivityLogMiddleware());
+// app.use(ActivityLogMiddleware());
 app.use(ErrorMiddleware());
 
 app
