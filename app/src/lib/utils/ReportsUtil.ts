@@ -125,6 +125,7 @@ export class ReportsUtil {
         aiGeneratedContent: "",
         userReportDescription: "",
         messages: data.messages,
+        images: data.images
       },
     });
 

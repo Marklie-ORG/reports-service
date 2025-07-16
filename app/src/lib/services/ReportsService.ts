@@ -17,7 +17,7 @@ import type {
   SchedulingOptionMetrics,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { Temporal } from "@js-temporal/polyfill";
-import { CronUtil } from "lib/utils/CronUtil.js";
+import { CronUtil } from "../utils/CronUtil.js";
 
 const database = await Database.getInstance();
 const logger = Log.getInstance().extend("reports-service");
@@ -143,10 +143,6 @@ export class ReportsService {
     );
   }
 
-  async getSchedulingOption(uuid: string): Promise<SchedulingOption | null> {
-    return database.em.findOne(SchedulingOption, { uuid });
-  }
-
   async updateReportMetricsSelections(
     uuid: string,
     metricsSelections: SchedulingOptionMetrics,
@@ -159,6 +155,26 @@ export class ReportsService {
 
     report.metadata!.metricsSelections = metricsSelections;
     await database.em.persistAndFlush(report);
+  }
+
+  async getSchedulingOption(uuid: string): Promise<SchedulingOption | null> {
+    const gcs = GCSWrapper.getInstance('marklie-client-reports');
+    const schedulingOption = await database.em.findOne(SchedulingOption, {uuid: uuid});
+
+    if (!schedulingOption || !schedulingOption.jobData?.images) {
+      return schedulingOption;
+    }
+
+    const clientLogo = schedulingOption.jobData.images.clientLogo ? await gcs.getSignedUrl(schedulingOption.jobData.images.clientLogo) : '';
+    const agencyLogo = schedulingOption.jobData.images.agencyLogo ? await gcs.getSignedUrl(schedulingOption.jobData.images.agencyLogo) : '';
+
+    return {
+      ...schedulingOption,
+      images: {
+        clientLogo, 
+        agencyLogo
+      }
+    }
   }
 
   async sendReportAfterReview(uuid: string) {
