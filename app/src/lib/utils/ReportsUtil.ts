@@ -41,7 +41,7 @@ export class ReportsUtil {
         client,
         adAccountReports,
       );
-      await this.updateLastRun(client.uuid, data.timeZone);
+      await this.updateLastRun(data.scheduleUuid, data.timeZone);
 
       if (!data.reviewRequired) {
         report.gcsUrl = await this.generateAndUploadPdf(
@@ -240,9 +240,9 @@ export class ReportsUtil {
     }
   }
 
-  private static async updateLastRun(clientUuid: string, timeZone: string) {
+  private static async updateLastRun(scheduleUuid: string, timeZone: string) {
     const option = await database.em.findOne(SchedulingOption, {
-      client: clientUuid,
+      uuid: scheduleUuid,
     });
 
     if (option) {

@@ -39,9 +39,15 @@ export class ReportsService {
       const schedule = new SchedulingOption();
       this.assignScheduleFields(schedule, scheduleOption, client);
 
-      const jobPayload = this.buildJobPayload(scheduleOption, client);
+      const jobPayload = this.buildJobPayload(
+        scheduleOption,
+        client,
+        schedule.uuid,
+      );
+
       const cronExpression =
         CronUtil.convertScheduleRequestToCron(scheduleOption);
+
       const job = await ReportQueueService.getInstance().scheduleReport(
         jobPayload,
         cronExpression,
@@ -91,7 +97,11 @@ export class ReportsService {
 
       this.assignScheduleFields(schedule, scheduleOption, client);
 
-      const jobPayload = this.buildJobPayload(scheduleOption, client);
+      const jobPayload = this.buildJobPayload(
+        scheduleOption,
+        client,
+        schedule.uuid,
+      );
       const cronExpression =
         CronUtil.convertScheduleRequestToCron(scheduleOption);
 
@@ -227,9 +237,11 @@ export class ReportsService {
   private buildJobPayload(
     option: ReportScheduleRequest,
     client: OrganizationClient,
+    scheduleUuid: string,
   ): ReportJobData {
     return {
       ...option,
+      scheduleUuid,
       organizationUuid: client.organization.uuid,
     };
   }
