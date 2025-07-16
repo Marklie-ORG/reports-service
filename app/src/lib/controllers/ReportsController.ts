@@ -27,6 +27,10 @@ export class ReportsController extends Router {
     this.post("/schedule", this.scheduleReport.bind(this));
     this.post("/send-after-review", this.sendAfterReview.bind(this));
     this.get("/scheduling-option/:uuid", this.getSchedulingOption.bind(this));
+    this.get(
+      "/scheduling-options/:clientUuid",
+      this.getSchedulingOptions.bind(this),
+    );
     this.put(
       "/scheduling-option/:uuid",
       this.updateSchedulingOption.bind(this),
@@ -86,6 +90,7 @@ export class ReportsController extends Router {
 
   private async updateSchedulingOption(ctx: Context) {
     const user: User = ctx.state.user as User;
+
     const scheduleOption: ReportScheduleRequest = ctx.request
       .body as ReportScheduleRequest;
     const uuid = ctx.params.uuid as string;
@@ -105,6 +110,13 @@ export class ReportsController extends Router {
     const uuid = ctx.params.uuid as string;
 
     ctx.body = await this.reportsService.getSchedulingOption(uuid);
+    ctx.status = 200;
+  }
+
+  private async getSchedulingOptions(ctx: Context) {
+    const clientUuid = ctx.params.clientUuid as string;
+
+    ctx.body = await this.reportsService.getSchedulingOptions(clientUuid);
     ctx.status = 200;
   }
 

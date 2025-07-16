@@ -41,7 +41,7 @@ export class ReportsUtil {
         client,
         adAccountReports,
       );
-      await this.updateLastRun(data.scheduleUuid, data.timeZone);
+      await this.updateLastRun(data.scheduleUuid);
 
       if (!data.reviewRequired) {
         report.gcsUrl = await this.generateAndUploadPdf(
@@ -125,7 +125,7 @@ export class ReportsUtil {
         aiGeneratedContent: "",
         userReportDescription: "",
         messages: data.messages,
-        images: data.images
+        images: data.images,
       },
     });
 
@@ -241,15 +241,13 @@ export class ReportsUtil {
     }
   }
 
-  private static async updateLastRun(scheduleUuid: string, timeZone: string) {
+  private static async updateLastRun(scheduleUuid: string) {
     const option = await database.em.findOne(SchedulingOption, {
       uuid: scheduleUuid,
     });
 
     if (option) {
-      option.lastRun = new Date(
-        Temporal.Now.zonedDateTimeISO(timeZone).toInstant().epochMilliseconds,
-      );
+      option.lastRun = new Date();
       await database.em.flush();
     }
   }

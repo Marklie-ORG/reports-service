@@ -9,15 +9,18 @@ import {
   Report,
   ScheduledJob,
   SchedulingOption,
+  type SchedulingOptionWithImages,
 } from "marklie-ts-core";
 import { ReportQueueService } from "./ReportsQueueService.js";
 import type {
   ReportJobData,
   ReportScheduleRequest,
   SchedulingOptionMetrics,
+  SchedulingOptionWithExtras,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { Temporal } from "@js-temporal/polyfill";
 import { CronUtil } from "../utils/CronUtil.js";
+import cronstrue from "cronstrue";
 
 const database = await Database.getInstance();
 const logger = Log.getInstance().extend("reports-service");
@@ -157,24 +160,111 @@ export class ReportsService {
     await database.em.persistAndFlush(report);
   }
 
-  async getSchedulingOption(uuid: string): Promise<SchedulingOption | null> {
-    const gcs = GCSWrapper.getInstance('marklie-client-reports');
-    const schedulingOption = await database.em.findOne(SchedulingOption, {uuid: uuid});
+  async getSchedulingOption(uuid: string): Promise<SchedulingOptionWithImages> {
+    const gcs = GCSWrapper.getInstance("marklie-client-reports");
+    const schedulingOption = await database.em.findOne(SchedulingOption, {
+      uuid: uuid,
+    });
 
     if (!schedulingOption || !schedulingOption.jobData?.images) {
-      return schedulingOption;
+      return {
+        ...schedulingOption,
+        images: {
+          clientLogo: "",
+          agencyLogo: "",
+        },
+      } as unknown as SchedulingOptionWithImages;
     }
 
-    const clientLogo = schedulingOption.jobData.images.clientLogo ? await gcs.getSignedUrl(schedulingOption.jobData.images.clientLogo) : '';
-    const agencyLogo = schedulingOption.jobData.images.agencyLogo ? await gcs.getSignedUrl(schedulingOption.jobData.images.agencyLogo) : '';
+    const clientLogo = schedulingOption.jobData.images.clientLogo
+      ? await gcs.getSignedUrl(schedulingOption.jobData.images.clientLogo)
+      : "";
+    const agencyLogo = schedulingOption.jobData.images.agencyLogo
+      ? await gcs.getSignedUrl(schedulingOption.jobData.images.agencyLogo)
+      : "";
 
     return {
       ...schedulingOption,
       images: {
-        clientLogo, 
-        agencyLogo
-      }
-    }
+        clientLogo,
+        agencyLogo,
+      },
+    } as unknown as SchedulingOptionWithImages;
+  }
+
+  async getSchedulingOptions(
+    clientUuid: string,
+  ): Promise<SchedulingOptionWithExtras[]> {
+    const gcs = GCSWrapper.getInstance("marklie-client-reports");
+
+    const schedulingOptions = await database.em.find(SchedulingOption, {
+      client: clientUuid,
+    });
+
+    const dtf = new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    });
+
+    const sortedOptions = schedulingOptions.sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
+
+    return Promise.all(
+      sortedOptions.map(async (opt) => {
+        const { images: imageData, time } = opt.jobData || {};
+        const [hour, minute] = time?.split(":").map(Number) || [0, 0];
+
+        const nextRunDate = ReportsUtil.getNextRunDate(
+          opt.jobData as ReportScheduleRequest,
+        ).toPlainDate();
+        const zonedDateTime = nextRunDate.toZonedDateTime({
+          timeZone: opt.timezone!,
+          plainTime: new Temporal.PlainTime(hour, minute),
+        });
+
+        const formattedNextRun = dtf.format(
+          new Date(zonedDateTime.epochMilliseconds),
+        );
+
+        let formattedLastRun = "";
+        if (opt.lastRun && opt.timezone) {
+          const lastRunInstant = Temporal.Instant.from(
+            opt.lastRun.toISOString(),
+          );
+
+          const zonedLastRun = lastRunInstant.toZonedDateTimeISO(opt.timezone);
+          if (opt.reportName === "last") {
+            console.log(lastRunInstant.toString());
+            console.log(zonedLastRun.toString());
+          }
+          formattedLastRun = dtf.format(
+            new Date(zonedLastRun.epochMilliseconds),
+          );
+        }
+
+        const clientLogo = imageData?.clientLogo
+          ? await gcs.getSignedUrl(imageData.clientLogo)
+          : "";
+        const agencyLogo = imageData?.agencyLogo
+          ? await gcs.getSignedUrl(imageData.agencyLogo)
+          : "";
+
+        const images =
+          clientLogo || agencyLogo ? { clientLogo, agencyLogo } : undefined;
+
+        return {
+          ...opt,
+          nextRun: formattedNextRun,
+          lastRun: formattedLastRun,
+          frequency: cronstrue.toString(opt.cronExpression),
+          ...(images && { images }),
+        };
+      }),
+    );
   }
 
   async sendReportAfterReview(uuid: string) {
@@ -240,14 +330,17 @@ export class ReportsService {
     schedule.jobData = option as any;
     schedule.timezone = option.timeZone;
     schedule.datePreset = option.datePreset;
-    schedule.reportName = option.reportName ? option.reportName : "";
+    schedule.reportName = option.reportName || "";
+
+    const [hour, minute] = option.time.split(":").map(Number);
     const plainDate = ReportsUtil.getNextRunDate(option).toPlainDate();
-    schedule.nextRun = new Date(
-      plainDate.toZonedDateTime({
-        timeZone: option.timeZone,
-        plainTime: "00:00",
-      }).epochMilliseconds,
-    );
+
+    const zonedDateTime = plainDate.toZonedDateTime({
+      timeZone: option.timeZone,
+      plainTime: new Temporal.PlainTime(hour, minute),
+    });
+
+    schedule.nextRun = new Date(zonedDateTime.epochMilliseconds);
   }
 
   private buildJobPayload(
