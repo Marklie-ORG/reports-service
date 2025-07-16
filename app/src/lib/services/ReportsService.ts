@@ -201,14 +201,6 @@ export class ReportsService {
       client: clientUuid,
     });
 
-    const dtf = new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    });
-
     const sortedOptions = schedulingOptions.sort(
       (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
     );
@@ -218,32 +210,43 @@ export class ReportsService {
         const { images: imageData, time } = opt.jobData || {};
         const [hour, minute] = time?.split(":").map(Number) || [0, 0];
 
-        const nextRunDate = ReportsUtil.getNextRunDate(
+        const plainDate = ReportsUtil.getNextRunDate(
           opt.jobData as ReportScheduleRequest,
         ).toPlainDate();
-        const zonedDateTime = nextRunDate.toZonedDateTime({
-          timeZone: opt.timezone!,
-          plainTime: new Temporal.PlainTime(hour, minute),
-        });
 
-        const formattedNextRun = dtf.format(
-          new Date(zonedDateTime.epochMilliseconds),
-        );
-
+        let formattedNextRun = "";
         let formattedLastRun = "";
-        if (opt.lastRun && opt.timezone) {
-          const lastRunInstant = Temporal.Instant.from(
-            opt.lastRun.toISOString(),
-          );
 
-          const zonedLastRun = lastRunInstant.toZonedDateTimeISO(opt.timezone);
-          if (opt.reportName === "last") {
-            console.log(lastRunInstant.toString());
-            console.log(zonedLastRun.toString());
+        if (opt.timezone) {
+          const zonedNext = plainDate.toZonedDateTime({
+            timeZone: opt.timezone,
+            plainTime: new Temporal.PlainTime(hour, minute),
+          });
+
+          formattedNextRun = zonedNext.toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            hourCycle: "h23",
+          });
+
+          if (opt.lastRun) {
+            const lastRunInstant = Temporal.Instant.from(
+              opt.lastRun.toISOString(),
+            );
+            const zonedLastRun = lastRunInstant.toZonedDateTimeISO(
+              opt.timezone,
+            );
+
+            formattedLastRun = zonedLastRun.toLocaleString("en-US", {
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              hourCycle: "h23",
+            });
           }
-          formattedLastRun = dtf.format(
-            new Date(zonedLastRun.epochMilliseconds),
-          );
         }
 
         const clientLogo = imageData?.clientLogo
