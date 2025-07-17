@@ -1,14 +1,25 @@
-import axios, { type AxiosInstance } from "axios";
-import { Database, OrganizationToken } from "marklie-ts-core";
+import axios, { type AxiosError, type AxiosInstance } from "axios";
+import {
+  CircuitBreaker,
+  CircuitBreakerManager,
+  Database,
+  MarklieError,
+  OrganizationToken,
+} from "marklie-ts-core";
 import { Log } from "marklie-ts-core/dist/lib/classes/Logger.js";
+import { ReportsConfigService } from "../config/config.js";
 
 const database = await Database.getInstance();
 const logger = Log.getInstance().extend("facebook-api");
+const config = ReportsConfigService.getInstance();
 
 export class FacebookApi {
   static readonly MAX_POLL_ATTEMPTS = 100;
   static readonly POLL_INTERVAL_MS = 6000;
+  static readonly BATCH_SIZE = 50;
+  static readonly MAX_RETRIES = 3;
 
+  private circuitBreaker: CircuitBreaker;
   private api: AxiosInstance;
 
   private constructor(
@@ -16,9 +27,21 @@ export class FacebookApi {
     private accountId: string,
   ) {
     this.api = axios.create({
-      baseURL: `https://graph.facebook.com/v22.0/`,
+      baseURL: config.getFacebookApiUrl(),
       params: { access_token: token },
+      timeout: 30000,
     });
+
+    this.circuitBreaker = CircuitBreakerManager.getInstance().getOrCreate(
+      "FacebookAPI",
+      {
+        failureThreshold: 5,
+        recoveryTimeout: 60000,
+        expectedErrorCodes: ["VALIDATION_ERROR"],
+      },
+    );
+
+    this.setupInterceptors();
   }
 
   static async create(
@@ -32,44 +55,171 @@ export class FacebookApi {
       throw new Error(
         `No token found for organizationUuid ${organizationUuid}`,
       );
-    return new FacebookApi(tokenRecord.token, accountId);
+    return new FacebookApi(
+      "EAASERizF7PoBO9DxAMbCWwZAJ4htpGSdj6kmRbdKBLLEiPrZC8bOtoXyoBiwNhq3POHk2rEVXRviwRE2gWYzFSVwvQMi2vZAZCB8bmvQbkZCEvyNWD2KpHcNoMEpWtvTo6NfZAG7IKivZA3ZCMzrxapNGQ4RHmQ6s4a333bEjZCZATlmEBzUQ05KMcJRHaEXGa",
+      accountId,
+    );
+  }
+
+  private setupInterceptors() {
+    this.api.interceptors.response.use(
+      (response) => response,
+      (error: AxiosError) => {
+        const fbError = error.response?.data as any;
+        const fbCode = fbError?.error?.code;
+        const fbMessage = fbError?.error?.message || "";
+
+        logger.error("Facebook API Error:", {
+          status: error.response?.status,
+          fbCode,
+          fbMessage,
+          url: error.config?.url,
+        });
+
+        switch (fbCode) {
+          case 190:
+            throw MarklieError.unauthorized(
+              "Facebook access token is invalid",
+              "facebook-api",
+            );
+          case 100:
+            throw MarklieError.validation(
+              `Facebook API validation error: ${fbMessage}`,
+              { fbCode },
+            );
+          default:
+            throw MarklieError.externalApi(
+              "Facebook API",
+              error,
+              "facebook-api",
+            );
+        }
+      },
+    );
+  }
+
+  private async executeWithCircuitBreaker<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    return this.circuitBreaker.execute(operation);
+  }
+
+  private async retryOperation<T>(
+    operation: () => Promise<T>,
+    maxRetries: number = FacebookApi.MAX_RETRIES,
+    delay: number = 1000,
+  ): Promise<T> {
+    let lastError: Error;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error as Error;
+
+        if (
+          error instanceof MarklieError &&
+          error.statusCode >= 400 &&
+          error.statusCode < 500
+        ) {
+          throw error;
+        }
+
+        if (attempt === maxRetries) {
+          break;
+        }
+
+        const backoffDelay = delay * Math.pow(2, attempt - 1);
+        logger.warn(
+          `Facebook API retry ${attempt}/${maxRetries} after ${backoffDelay}ms`,
+          {
+            error: error instanceof Error ? error.message : "Unknown error",
+          },
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+      }
+    }
+
+    throw lastError!;
   }
 
   private async batchRequest(
     batch: { method: string; relative_url: string }[],
-  ) {
-    const res = await this.api.post("/", null, {
-      params: { batch: JSON.stringify(batch) },
-    });
-    return res.data.map((item: any) => JSON.parse(item.body));
+  ): Promise<any[]> {
+    if (batch.length === 0) return [];
+
+    const batches = this.chunkArray(batch, FacebookApi.BATCH_SIZE);
+    const results: any[] = [];
+
+    for (const batchChunk of batches) {
+      const batchResult = await this.executeWithCircuitBreaker(async () => {
+        const res = await this.api.post("/", null, {
+          params: { batch: JSON.stringify(batchChunk) },
+        });
+
+        return res.data.map((item: any) => {
+          if (item.code !== 200) {
+            logger.warn(`Batch request item failed: `, {
+              code: item.code,
+              body: item.body,
+            });
+            return null;
+          }
+          return JSON.parse(item.body);
+        });
+      });
+
+      results.push(...batchResult);
+    }
+
+    return results.filter(Boolean);
+  }
+
+  private chunkArray<T>(array: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
   }
 
   private async paginateAll<T = any>(
     endpoint: string,
     params: Record<string, any>,
+    maxPages: number = 100,
   ): Promise<T[]> {
     const results: T[] = [];
     let nextUrl: string | null = endpoint;
     let nextParams: Record<string, any> = { ...params };
+    let pageCount = 0;
 
-    while (nextUrl) {
-      const res: { data: { data?: T[]; paging?: { next?: string } } } =
-        await this.api.get(nextUrl, {
-          params: nextParams,
-        });
+    while (nextUrl && pageCount < maxPages) {
+      const pageData = await this.executeWithCircuitBreaker(async () => {
+        const res = await this.api.get(nextUrl!, { params: nextParams });
+        return res.data;
+      });
 
-      if (res.data.data) {
-        results.push(...res.data.data);
+      if (pageData.data) {
+        results.push(...pageData.data);
       }
 
-      const nextPage: string | undefined = res.data.paging?.next;
+      const nextPage = pageData.paging?.next;
       if (nextPage) {
-        const parsed: URL = new URL(nextPage);
+        const parsed = new URL(nextPage);
         nextUrl = parsed.pathname;
         nextParams = Object.fromEntries(parsed.searchParams.entries());
+        pageCount++;
       } else {
         nextUrl = null;
       }
+    }
+
+    if (pageCount >= maxPages) {
+      logger.warn(`Pagination stopped at maximum pages: ${maxPages}`, {
+        endpoint,
+        resultsCount: results.length,
+      });
     }
 
     return results;
@@ -102,6 +252,12 @@ export class FacebookApi {
       timeIncrement,
     } = options;
 
+    if (!fields.length) {
+      throw MarklieError.validation(
+        "At least one field is required for insights",
+      );
+    }
+
     const isLargeQuery =
       customDateRange ||
       breakdowns.length > 0 ||
@@ -124,16 +280,22 @@ export class FacebookApi {
 
     const endpoint = `${this.accountId}/insights`;
 
-    logger.info(
-      `Fetching insights: ${JSON.stringify({ endpoint, params, isLargeQuery })}`,
-    );
+    logger.info("Fetching Facebook insights", {
+      endpoint,
+      level,
+      fields: fields.length,
+      isLargeQuery,
+      datePreset: customDateRange ? "custom" : datePreset,
+    });
 
     try {
       if (!isLargeQuery) {
-        const res = await this.api.get(endpoint, {
-          params: { ...params, limit: 100 },
+        return await this.executeWithCircuitBreaker(async () => {
+          const res = await this.api.get(endpoint, {
+            params: { ...params, limit: 100 },
+          });
+          return res.data.data || [];
         });
-        return res.data.data || [];
       }
 
       return await this.fetchAsyncInsights(endpoint, params);
@@ -148,12 +310,8 @@ export class FacebookApi {
 
       if (isRetryable) {
         logger.warn(
-          `Retrying with async mode due to large query or throttling ${JSON.stringify(
-            {
-              fbCode,
-              fbMessage,
-            },
-          )}`,
+          `Retrying with async mode due to large query or throttling`,
+          { fbCode, fbMessage },
         );
         return await this.fetchAsyncInsights(endpoint, params);
       }
@@ -166,79 +324,128 @@ export class FacebookApi {
     endpoint: string,
     params: Record<string, any>,
   ): Promise<any[]> {
-    const jobRes = await this.api.post(endpoint, null, {
-      params: { ...params, async: true },
+    const jobRes = await this.executeWithCircuitBreaker(async () => {
+      return this.api.post(endpoint, null, {
+        params: { ...params, async: true },
+      });
     });
 
     const reportId = jobRes.data.report_run_id;
-    logger.info(`Started async report fetch ${reportId}`);
-
-    for (let i = 0; i < FacebookApi.MAX_POLL_ATTEMPTS; i++) {
-      const statusRes = await this.api.get(`/${reportId}`);
-      const status = statusRes.data.async_status;
-
-      if (status === "Job Completed") {
-        const dataRes = await this.api.get(`/${reportId}/insights`);
-        return dataRes.data.data || [];
-      }
-
-      if (status === "Job Failed") {
-        logger.error(`Facebook Insights async job failed ${reportId}`);
-        throw new Error("Facebook Insights async job failed");
-      }
-
-      await new Promise((res) => setTimeout(res, FacebookApi.POLL_INTERVAL_MS));
+    if (!reportId) {
+      throw MarklieError.externalApi(
+        "Facebook API did not return report_run_id",
+      );
     }
 
-    logger.error(`Facebook Insights async job timed out ${reportId}`);
-    throw new Error("Facebook Insights async job timed out");
+    logger.info(`Started async Facebook insights job: ${reportId}`);
+
+    let pollInterval = FacebookApi.POLL_INTERVAL_MS;
+
+    for (let attempt = 1; attempt <= FacebookApi.MAX_POLL_ATTEMPTS; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+
+      const statusRes = await this.executeWithCircuitBreaker(async () => {
+        return this.api.get(`/${reportId}`);
+      });
+
+      const status = statusRes.data.async_status;
+      const progress = statusRes.data.async_percent_completion || 0;
+
+      logger.debug(
+        `Facebook insights job ${reportId} status: ${status} (${progress}%)`,
+      );
+
+      switch (status) {
+        case "Job Completed":
+          const dataRes = await this.executeWithCircuitBreaker(async () => {
+            return this.api.get(`/${reportId}/insights`);
+          });
+          logger.info(
+            `Facebook insights job ${reportId} completed successfully`,
+          );
+          return dataRes.data.data || [];
+
+        case "Job Failed":
+          logger.error(`Facebook insights job ${reportId} failed`);
+          throw MarklieError.externalApi("Facebook Insights async job failed");
+
+        case "Job Running":
+        case "Job Started":
+          if (attempt > 10) {
+            pollInterval = Math.min(pollInterval * 1.2, 15000);
+          }
+          break;
+
+        default:
+          logger.warn(`Unknown Facebook insights job status: ${status}`);
+      }
+    }
+
+    logger.error(
+      `Facebook insights job ${reportId} timed out after ${FacebookApi.MAX_POLL_ATTEMPTS} attempts`,
+    );
+    throw MarklieError.externalApi("Facebook Insights async job timed out");
   }
 
   public async getAdInsightsWithThumbnails(
-    api: FacebookApi,
     fields: string[],
     datePreset: string,
   ): Promise<any[]> {
-    const insights = await api.getInsightsSmart("ad", [...fields, "ad_id"], {
+    const insights = await this.getInsightsSmart("ad", [...fields, "ad_id"], {
       datePreset,
       actionBreakdowns: ["action_type"],
     });
 
-    const adIds = insights.reduce<string[]>((acc, i) => {
-      if (i.ad_id) acc.push(i.ad_id);
-      return acc;
-    }, []);
-    const ads = await api.getEntitiesBatch(adIds, ["id", "creative{id}"]);
+    if (insights.length === 0) {
+      logger.info("No ad insights data returned");
+      return [];
+    }
 
-    const creativeIds = ads
-      .map((ad: { creative: { id: any } }) => ad.creative?.id)
-      .filter((id: any): id is string => !!id);
+    return await this.enrichInsightsWithCreativeData(insights);
+  }
 
-    const creatives = await api.getEntitiesBatch(creativeIds, [
-      "id",
-      "thumbnail_url",
-    ]);
+  private async enrichInsightsWithCreativeData(
+    insights: any[],
+  ): Promise<any[]> {
+    const adIds = insights
+      .map((insight) => insight.ad_id)
+      .filter((id): id is string => !!id);
 
-    return insights.map((insight) => {
-      const ad = ads.find((a: { id: any }) => a.id === insight.ad_id);
-      const creative = creatives.find(
-        (c: { id: any }) => c.id === ad?.creative?.id,
-      );
+    if (adIds.length === 0) return insights;
 
-      const getActionValue = (type: string) =>
-        insight.actions?.find((a: any) => a.action_type === type)?.value ?? 0;
+    try {
+      const ads = await this.getEntitiesBatch(adIds, ["id", "creative{id}"]);
+      const creativeIds = ads
+        .map((ad) => ad.creative?.id)
+        .filter((id): id is string => !!id);
 
-      return {
-        ...insight,
-        purchases: getActionValue("purchase"),
-        addToCart: getActionValue("add_to_cart"),
-        roas: insight.purchase_roas?.[0]?.value ?? 0,
-        creative: {
-          id: creative?.id ?? null,
-          thumbnail_url: creative?.thumbnail_url ?? null,
-        },
-      };
-    });
+      const creatives =
+        creativeIds.length > 0
+          ? await this.getEntitiesBatch(creativeIds, ["id", "thumbnail_url"])
+          : [];
+
+      return insights.map((insight) => {
+        const ad = ads.find((a) => a.id === insight.ad_id);
+        const creative = creatives.find((c) => c.id === ad?.creative?.id);
+
+        const getActionValue = (type: string) =>
+          insight.actions?.find((a: any) => a.action_type === type)?.value ?? 0;
+
+        return {
+          ...insight,
+          purchases: getActionValue("purchase"),
+          addToCart: getActionValue("add_to_cart"),
+          roas: insight.purchase_roas?.[0]?.value ?? 0,
+          creative: {
+            id: creative?.id ?? null,
+            thumbnail_url: creative?.thumbnail_url ?? null,
+          },
+        };
+      });
+    } catch (error) {
+      logger.error("Error enriching insights with creative data:", error);
+      return insights;
+    }
   }
 
   public async getAdCreatives(
@@ -249,14 +456,16 @@ export class FacebookApi {
       "thumbnail_url",
       "effective_object_story_id",
     ],
-  ) {
-    return await this.paginateAll(`${this.accountId}/adcreatives`, {
-      fields: fields.join(","),
-      limit: 100,
-    });
+  ): Promise<any[]> {
+    return await this.retryOperation(() =>
+      this.paginateAll(`${this.accountId}/adcreatives`, {
+        fields: fields.join(","),
+        limit: 100,
+      }),
+    );
   }
 
-  public async getCreativeAssetsBatch(creativeIds: string[]) {
+  public async getCreativeAssetsBatch(creativeIds: string[]): Promise<any[]> {
     return await this.getEntitiesBatch(creativeIds, [
       "id",
       "effective_instagram_media_id",
@@ -266,7 +475,7 @@ export class FacebookApi {
     ]);
   }
 
-  public async getInstagramMediaBatch(mediaIds: string[]) {
+  public async getInstagramMediaBatch(mediaIds: string[]): Promise<any[]> {
     return await this.getEntitiesBatch(mediaIds, [
       "media_url",
       "permalink",
@@ -284,11 +493,13 @@ export class FacebookApi {
       "instagram_permalink_url",
       "effective_object_story_id",
     ],
-  ) {
-    const res = await this.api.get(`${creativeId}`, {
-      params: { fields: fields.join(",") },
+  ): Promise<any> {
+    return await this.executeWithCircuitBreaker(async () => {
+      const res = await this.api.get(`${creativeId}`, {
+        params: { fields: fields.join(",") },
+      });
+      return res.data;
     });
-    return res.data;
   }
 
   public async getInstagramMedia(
@@ -299,11 +510,13 @@ export class FacebookApi {
       "thumbnail_url",
       "media_type",
     ],
-  ) {
-    const res = await this.api.get(`${mediaId}`, {
-      params: { fields: fields.join(",") },
+  ): Promise<any> {
+    return await this.executeWithCircuitBreaker(async () => {
+      const res = await this.api.get(`${mediaId}`, {
+        params: { fields: fields.join(",") },
+      });
+      return res.data;
     });
-    return res.data;
   }
 
   public async getProfile() {
@@ -313,18 +526,22 @@ export class FacebookApi {
     return res.data;
   }
 
-  public async getBusinesses() {
-    const res = await this.api.get(`/me/businesses`, {
-      params: { fields: "id,name,owned_ad_accounts{id,name}", limit: 1000 },
+  public async getBusinesses(): Promise<any> {
+    return await this.executeWithCircuitBreaker(async () => {
+      const res = await this.api.get(`/me/businesses`, {
+        params: { fields: "id,name,owned_ad_accounts{id,name}", limit: 1000 },
+      });
+      return res.data;
     });
-    return res.data;
   }
 
-  public async getUserAdAccounts() {
-    const res = await this.api.get(`/me/adaccounts`, {
-      params: { fields: "id,name" },
+  public async getUserAdAccounts(): Promise<any> {
+    return await this.executeWithCircuitBreaker(async () => {
+      const res = await this.api.get(`/me/adaccounts`, {
+        params: { fields: "id,name" },
+      });
+      return res.data;
     });
-    return res.data;
   }
 
   public async getFilteredAdAccounts() {
@@ -358,17 +575,19 @@ export class FacebookApi {
     return res.data;
   }
 
-  public async getPost(postId: string) {
-    const res = await this.api.get(`${this.accountId}`, {
-      params: {
-        fields:
-          "id,name,adcreatives.limit(1){effective_object_story_id,name,thumbnail_url,authorization_category,instagram_permalink_url}",
-        search: postId,
-        limit: 1,
-        thumbnail_height: 1080,
-        thumbnail_width: 1080,
-      },
+  public async getPost(postId: string): Promise<any> {
+    return await this.executeWithCircuitBreaker(async () => {
+      const res = await this.api.get(`${this.accountId}`, {
+        params: {
+          fields:
+            "id,name,adcreatives.limit(1){effective_object_story_id,name,thumbnail_url,authorization_category,instagram_permalink_url}",
+          search: postId,
+          limit: 1,
+          thumbnail_height: 1080,
+          thumbnail_width: 1080,
+        },
+      });
+      return res.data;
     });
-    return res.data;
   }
 }
