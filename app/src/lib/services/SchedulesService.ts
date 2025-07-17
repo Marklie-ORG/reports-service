@@ -3,6 +3,7 @@ import {
   Database,
   GCSWrapper,
   Log,
+  MarklieError,
   OrganizationClient,
   Report,
   ScheduledJob,
@@ -33,8 +34,11 @@ export class SchedulesService {
       });
 
       if (!client) {
-        logger.error(`Client with UUID ${scheduleOption.clientUuid} not found`);
-        return;
+        throw MarklieError.notFound(
+          "Client",
+          scheduleOption.clientUuid,
+          "reports-service",
+        );
       }
 
       const schedule = new SchedulingOption();
@@ -55,7 +59,7 @@ export class SchedulesService {
       );
 
       if (!job) {
-        throw new Error("Job was not created");
+        throw MarklieError.notFound("Job", schedule.uuid, "Job was not found");
       }
 
       const scheduledJob = new ScheduledJob();
@@ -66,8 +70,20 @@ export class SchedulesService {
       await database.em.flush();
 
       return schedule.uuid;
-    } catch (e) {
-      logger.error("Failed to schedule report:", e);
+    } catch (error) {
+      if (error instanceof MarklieError) {
+        throw error;
+      }
+
+      logger.error("Failed to schedule report:", error);
+      throw MarklieError.internal(
+        "Failed to schedule report",
+        {
+          originalError:
+            error instanceof Error ? error.message : "Unknown error",
+        },
+        "reports-service",
+      );
     }
   }
 
@@ -235,12 +251,14 @@ export class SchedulesService {
         const clientLogo = imageData?.clientLogo
           ? await gcs.getSignedUrl(imageData.clientLogo)
           : "";
-        const agencyLogo = imageData?.agencyLogo
-          ? await gcs.getSignedUrl(imageData.agencyLogo)
+        const organizationLogo = imageData?.organizationLogo
+          ? await gcs.getSignedUrl(imageData.organizationLogo)
           : "";
 
         const images =
-          clientLogo || agencyLogo ? { clientLogo, agencyLogo } : undefined;
+          clientLogo || organizationLogo
+            ? { clientLogo, organizationLogo }
+            : undefined;
 
         return {
           ...opt,

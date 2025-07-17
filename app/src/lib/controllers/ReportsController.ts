@@ -1,7 +1,7 @@
 import Router from "koa-router";
 import type { Context } from "koa";
 import { ReportsService } from "../services/ReportsService.js";
-import { User } from "marklie-ts-core";
+import { MarklieError, User } from "marklie-ts-core";
 import { type SendAfterReviewRequest } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 
 export class ReportsController extends Router {
@@ -21,7 +21,13 @@ export class ReportsController extends Router {
   private async getReport(ctx: Context) {
     const uuid = ctx.params.uuid as string;
 
-    ctx.body = await this.reportsService.getReport(uuid);
+    const report = await this.reportsService.getReport(uuid);
+
+    if (!report) {
+      throw MarklieError.notFound("Report", uuid, "reports-service");
+    }
+
+    ctx.body = report;
     ctx.status = 200;
   }
 

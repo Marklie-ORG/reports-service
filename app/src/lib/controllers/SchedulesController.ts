@@ -1,6 +1,6 @@
 import Router from "koa-router";
 import type { Context } from "koa";
-import { User } from "marklie-ts-core";
+import { MarklieError, User } from "marklie-ts-core";
 import {
   AVAILABLE_ADS_METRICS,
   AVAILABLE_CAMPAIGN_METRICS,
@@ -43,6 +43,14 @@ export class SchedulesController extends Router {
         ...scheduleOption,
         organizationUuid: user.activeOrganization!.uuid,
       });
+
+    if (!scheduleUuid) {
+      throw MarklieError.internal(
+        "Failed to create report schedule",
+        undefined,
+        "reports-service",
+      );
+    }
 
     ctx.body = {
       message: "Report schedule created successfully",
