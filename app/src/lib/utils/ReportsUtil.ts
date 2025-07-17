@@ -116,6 +116,7 @@ export class ReportsUtil {
       reportType: "facebook",
       reviewRequired: data.reviewRequired,
       gcsUrl: "",
+      schedulingOption: data.scheduleUuid,
       data: adAccountReports,
       metadata: {
         timeZone: data.timeZone,
