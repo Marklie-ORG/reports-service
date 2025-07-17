@@ -17,9 +17,11 @@ import type {
 import { AxiosError } from "axios";
 import { FacebookDataUtil } from "./FacebookDataUtil.js";
 import { Temporal } from "@js-temporal/polyfill";
+import { ReportsConfigService } from "../config/config.js";
 
 const logger: Log = Log.getInstance().extend("reports-util");
 const database = await Database.getInstance();
+const config = ReportsConfigService.getInstance();
 
 export class ReportsUtil {
   public static async processScheduledReportJob(
@@ -143,7 +145,7 @@ export class ReportsUtil {
 
     const pdfBuffer = await this.generateReportPdf(reportUuid);
     const filePath = this.generateFilePath(clientUuid, datePreset);
-    const gcs = GCSWrapper.getInstance("marklie-client-reports");
+    const gcs = GCSWrapper.getInstance(config.get("GCS_REPORTS_BUCKET"));
 
     return await gcs.uploadBuffer(
       pdfBuffer,
@@ -206,14 +208,7 @@ export class ReportsUtil {
       ? "https://marklie.com"
       : "http://localhost:4200";
 
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-      defaultViewport: {
-        width: 1600,
-        height: 1000,
-      },
-    });
+    const browser = await puppeteer.launch(config.getPuppeteerConfig());
 
     try {
       const page = await browser.newPage();

@@ -8,9 +8,11 @@ import {
   Report,
 } from "marklie-ts-core";
 import { Temporal } from "@js-temporal/polyfill";
+import { ReportsConfigService } from "../config/config.js";
 
 const database = await Database.getInstance();
 const logger = Log.getInstance().extend("reports-service");
+const config = ReportsConfigService.getInstance();
 
 export class ReportsService {
   async getReport(uuid: string): Promise<Report | null> {
@@ -38,7 +40,7 @@ export class ReportsService {
       report.metadata?.datePreset,
     );
 
-    const gcs = GCSWrapper.getInstance("marklie-client-reports");
+    const gcs = GCSWrapper.getInstance(config.get("GCS_REPORTS_BUCKET"));
     report.gcsUrl = await gcs.uploadBuffer(
       pdfBuffer,
       filePath,

@@ -68,7 +68,7 @@ export class FacebookDataUtil {
       fetches.KPIs = api.getInsightsSmart("account", kpiFields, { datePreset });
 
     if (selectedAds.length)
-      fetches.ads = api.getAdInsightsWithThumbnails(api, adsFields, datePreset);
+      fetches.ads = api.getAdInsightsWithThumbnails(adsFields, datePreset);
 
     if (selectedGraphs.length)
       fetches.graphs = api.getInsightsSmart("account", graphFields, {
