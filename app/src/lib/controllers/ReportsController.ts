@@ -2,7 +2,10 @@ import Router from "koa-router";
 import type { Context } from "koa";
 import { ReportsService } from "../services/ReportsService.js";
 import { MarklieError, User } from "marklie-ts-core";
-import { type SendAfterReviewRequest } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
+import {
+  type SendAfterReviewRequest,
+  type ReportImages,
+} from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 
 export class ReportsController extends Router {
   private readonly reportsService: ReportsService;
@@ -16,6 +19,10 @@ export class ReportsController extends Router {
     this.get("/:uuid", this.getReport.bind(this));
     this.get("/", this.getReports.bind(this));
     this.post("/send-after-review", this.sendAfterReview.bind(this));
+    this.put(
+      "/report-images/:uuid",
+      this.updateReportImages.bind(this),
+    );
   }
 
   private async getReport(ctx: Context) {
@@ -51,5 +58,17 @@ export class ReportsController extends Router {
       uuid: scheduleUuid,
     };
     ctx.status = 201;
+  }
+
+  private async updateReportImages(ctx: Context) {
+    const images: ReportImages = ctx.request.body as ReportImages;
+    const uuid = ctx.params.uuid as string;
+
+    await this.reportsService.updateReportImages(uuid, images);
+
+    ctx.body = {
+      message: "Report images updated successfully",
+    };
+    ctx.status = 200;
   }
 }

@@ -25,10 +25,10 @@
     "dotenv": "^16.5.0",
     "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.2",
-    "marklie-ts-core": "1.4.3",
+    "marklie-ts-core": "1.4.9",
     "puppeteer": "^24.6.1",
     "winston": "^3.17.0",
-    "zod": "^3.24.2"
+    "zod": "^4.0.5"
   },
   "devDependencies": {
     "@swc/cli": "^0.6.0",
