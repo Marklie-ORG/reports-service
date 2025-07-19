@@ -36,8 +36,8 @@ importers:
         specifier: ^9.0.2
         version: 9.0.2
       marklie-ts-core:
-        specifier: 1.4.3
-        version: 1.4.3(@types/node@22.10.10)(pg@8.16.0)
+        specifier: 1.4.7
+        version: 1.4.7(@types/node@22.10.10)(pg@8.16.0)
       puppeteer:
         specifier: ^24.6.1
         version: 24.6.1(typescript@5.7.3)
@@ -45,8 +45,8 @@ importers:
         specifier: ^3.17.0
         version: 3.17.0
       zod:
-        specifier: ^3.24.2
-        version: 3.24.2
+        specifier: ^4.0.5
+        version: 4.0.5
     devDependencies:
       '@swc/cli':
         specifier: ^0.6.0
@@ -1723,8 +1723,8 @@ packages:
     resolution: {integrity: sha512-hXdUTZYIVOt1Ex//jAQi+wTZZpUpwBj/0QsOzqegb3rGMMeJiSEu5xLHnYfBrRV4RH2+OCSOO95Is/7x1WJ4bw==}
     engines: {node: '>=10'}
 
-  marklie-ts-core@1.4.3:
-    resolution: {integrity: sha512-frMIbTSuf6BM9DqiWQxB74iF78A2e0yrxDBn0TuUrTIt56BvQ7ikbO17+I7E2GETRl6E5HNIOfuLC8oAAyOHZQ==}
+  marklie-ts-core@1.4.7:
+    resolution: {integrity: sha512-+gV46TLuzJKFj3mQVobLme0wgydcfMKB1RkQlowsgW3XZW0oYCDCKo7L6UTmQThOLjoRkv7JpLFw6ncs7WopNA==}
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -2522,6 +2522,9 @@ packages:
 
   zod@3.24.2:
     resolution: {integrity: sha512-lY7CDW43ECgW9u1TcT3IoXHflywfVqDYze4waEz812jR/bZ8FHDsl7pFQoSZTz5N+2NqRXs8GBwnAwo3ZNxqhQ==}
+
+  zod@4.0.5:
+    resolution: {integrity: sha512-/5UuuRPStvHXu7RS+gmvRf4NXrNxpSllGwDnCBcJZtQsKrviYXm54yDGV2KYNLT5kq0lHGcl7lqWJLgSaG+tgA==}
 
 snapshots:
 
@@ -4289,7 +4292,7 @@ snapshots:
     dependencies:
       semver: 7.7.1
 
-  marklie-ts-core@1.4.3(@types/node@22.10.10)(pg@8.16.0):
+  marklie-ts-core@1.4.7(@types/node@22.10.10)(pg@8.16.0):
     dependencies:
       '@google-cloud/pubsub': 4.11.0
       '@google-cloud/secret-manager': 6.1.0
@@ -4307,7 +4310,7 @@ snapshots:
       path-to-regexp: 8.2.0
       uuid: 11.1.0
       winston: 3.17.0
-      zod: 3.24.2
+      zod: 4.0.5
     transitivePeerDependencies:
       - '@types/node'
       - better-sqlite3
@@ -5089,3 +5092,5 @@ snapshots:
   yocto-queue@0.1.0: {}
 
   zod@3.24.2: {}
+
+  zod@4.0.5: {}

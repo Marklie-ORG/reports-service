@@ -129,7 +129,7 @@ export class ReportsUtil {
         userReportDescription: "",
         messages: data.messages,
         images: data.images,
-        reportName: data.reportName,
+        // reportName: data.re,
       },
     });
 
