@@ -6,6 +6,7 @@ import {
   Log,
   PubSubWrapper,
   Report,
+  type ReportImages,
 } from "marklie-ts-core";
 import { Temporal } from "@js-temporal/polyfill";
 import { ReportsConfigService } from "../config/config.js";
@@ -82,4 +83,19 @@ export class ReportsService {
 
     await database.em.persistAndFlush(log);
   }
+  
+  async updateReportImages(
+    uuid: string,
+    images: ReportImages,
+  ) {
+    const report = await database.em.findOne(Report, { uuid });
+
+    if (!report) {
+      throw new Error(`Report ${uuid} not found`);
+    }
+
+    report.metadata!.images = images;
+    await database.em.persistAndFlush(report);
+  }
+
 }

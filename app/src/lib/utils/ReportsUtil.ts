@@ -129,6 +129,7 @@ export class ReportsUtil {
         userReportDescription: "",
         messages: data.messages,
         images: data.images,
+        reportName: data.reportName,
       },
     });
 
@@ -213,14 +214,12 @@ export class ReportsUtil {
     try {
       const page = await browser.newPage();
       await page.goto(`${baseUrl}/pdf-report/${reportUuid}`, {
-        waitUntil: "domcontentloaded",
+        waitUntil: "load",
         timeout: 120000,
       });
 
-      await page.waitForSelector(".graph-section");
-
       const dashboardHeight = await page.evaluate(() => {
-        const el = document.querySelector(".dashboard");
+        const el = document.querySelector(".report-container");
         return el ? el.scrollHeight : 2000;
       });
 
