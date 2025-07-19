@@ -28,6 +28,10 @@ export class FacebookDataUtil {
     return Number(values?.find((a) => a.action_type === type)?.value || 0);
   }
 
+  private static getLeads(values: any[], type: string): number {
+    return Number(values?.find((a) => a.action_type === type)?.value || 0);
+  }
+
   public static async getAllReportData(
     organizationUuid: string,
     accountId: string,
@@ -64,7 +68,7 @@ export class FacebookDataUtil {
       fetches.KPIs = api.getInsightsSmart("account", kpiFields, { datePreset });
 
     if (selectedAds.length)
-      fetches.ads = api.getAdInsightsWithThumbnails(api, adsFields, datePreset);
+      fetches.ads = api.getAdInsightsWithThumbnails(adsFields, datePreset);
 
     if (selectedGraphs.length)
       fetches.graphs = api.getInsightsSmart("account", graphFields, {
@@ -128,6 +132,8 @@ export class FacebookDataUtil {
       "omni_purchase",
     );
 
+    const leads = this.getLeads(apiData.actions, "lead");
+
     const metrics: KPIs = {
       spend: apiData.spend,
       impressions: apiData.impressions,
@@ -150,6 +156,12 @@ export class FacebookDataUtil {
         this.getActionValue(apiData.actions, "post_engagement") ||
         this.getActionValue(apiData.actions, "page_engagement") ||
         0,
+      ...(leads > 0
+        ? {
+            leads,
+            cost_per_lead: apiData.spend / leads,
+          }
+        : {}),
     };
 
     return Object.fromEntries(
@@ -163,6 +175,7 @@ export class FacebookDataUtil {
       const clicks = parseInt(g.clicks || "0");
       const purchases = this.getActionValue(g.actions, "omni_purchase");
       const add_to_cart = this.getActionValue(g.actions, "omni_add_to_cart");
+      const leads = this.getLeads(g.actions, "lead");
 
       const graph: Graph = {
         date_start: g.date_start,
@@ -193,6 +206,12 @@ export class FacebookDataUtil {
           this.getActionValue(g.actions, "post_engagement") ||
           this.getActionValue(g.actions, "page_engagement") ||
           0,
+        ...(leads > 0
+          ? {
+              leads,
+              cost_per_lead: spend / leads,
+            }
+          : {}),
       };
 
       return Object.fromEntries(
@@ -212,6 +231,7 @@ export class FacebookDataUtil {
       const clicks = parseInt(c.clicks || "0");
       const purchases = this.getActionValue(c.actions, "omni_purchase");
       const add_to_cart = this.getActionValue(c.actions, "omni_add_to_cart");
+      const leads = this.getLeads(c.actions, "lead");
 
       const campaign: Campaign = {
         index,
@@ -242,6 +262,12 @@ export class FacebookDataUtil {
           this.getActionValue(c.actions, "post_engagement") ||
           this.getActionValue(c.actions, "page_engagement") ||
           0,
+        ...(leads > 0
+          ? {
+              leads,
+              cost_per_lead: spend / leads,
+            }
+          : {}),
       };
 
       const finalFields = ["index", "campaign_name", ...selectedMetrics];
@@ -276,6 +302,7 @@ export class FacebookDataUtil {
       const spend = parseFloat(ad.spend || "0");
       const purchases = this.getActionValue(ad.actions, "omni_purchase");
       const add_to_cart = this.getActionValue(ad.actions, "omni_add_to_cart");
+      const leads = this.getLeads(ad.actions, "lead");
 
       return {
         adId: ad.ad_id,
@@ -308,6 +335,12 @@ export class FacebookDataUtil {
           this.getActionValue(ad.actions, "post_engagement") ||
           this.getActionValue(ad.actions, "page_engagement") ||
           0,
+        ...(leads > 0
+          ? {
+              leads,
+              cost_per_lead: spend / leads,
+            }
+          : {}),
       };
     });
 
