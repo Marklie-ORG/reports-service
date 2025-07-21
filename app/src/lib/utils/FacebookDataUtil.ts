@@ -64,17 +64,31 @@ export class FacebookDataUtil {
       AVAILABLE_CAMPAIGN_METRICS,
     );
 
-    if (selectedKpis.length)
-      fetches.KPIs = api.getInsightsSmart("account", kpiFields, { datePreset });
+    if (selectedKpis.length) {
+      fetches.campaignDataForKPIs = api.getInsightsSmart(
+        "campaign",
+        kpiFields,
+        {
+          datePreset,
+          additionalFields: ["campaign_id", "campaign_name"],
+        },
+      );
+    }
 
-    if (selectedAds.length)
+    if (selectedAds.length) {
       fetches.ads = api.getAdInsightsWithThumbnails(adsFields, datePreset);
+    }
 
-    if (selectedGraphs.length)
-      fetches.graphs = api.getInsightsSmart("account", graphFields, {
-        datePreset,
-        timeIncrement: 1,
-      });
+    if (selectedGraphs.length) {
+      fetches.campaignDataForGraphs = api.getInsightsSmart(
+        "campaign",
+        graphFields,
+        {
+          datePreset,
+          timeIncrement: 1,
+        },
+      );
+    }
 
     if (selectedCampaigns.length)
       fetches.campaigns = api.getInsightsSmart("campaign", campaignFields, {
@@ -98,21 +112,270 @@ export class FacebookDataUtil {
         )
       : [];
 
+    const KPIs = result.campaignDataForKPIs
+      ? this.aggregateCampaignDataToKPIs(
+          result.campaignDataForKPIs,
+          selectedKpis,
+        )
+      : null;
+
+    const campaigns = result.campaigns
+      ? this.normalizeCampaigns(result.campaigns, selectedCampaigns)
+      : [];
+
+    const graphs = result.campaignDataForGraphs
+      ? this.aggregateCampaignDataToGraphs(
+          result.campaignDataForGraphs,
+          selectedGraphs,
+        )
+      : [];
+
     return {
       ads,
-      KPIs: result.KPIs?.[0]
-        ? this.normalizeKPIs(result.KPIs[0], selectedKpis)
-        : null,
-      campaigns: result.campaigns
-        ? this.normalizeCampaigns(result.campaigns, selectedCampaigns)
-        : [],
-      graphs: result.graphs
-        ? this.normalizeGraphs(result.graphs, selectedGraphs)
-        : [],
+      KPIs,
+      campaigns,
+      graphs,
     };
   }
 
-  private static normalizeKPIs(
+  private static aggregateCampaignDataToKPIs(
+    campaignData: any[],
+    selectedMetrics: string[],
+  ): KPIs | null {
+    if (!campaignData || campaignData.length === 0) return null;
+
+    const aggregated = {
+      spend: 0,
+      impressions: 0,
+      clicks: 0,
+      reach: 0,
+      purchases: 0,
+      add_to_cart: 0,
+      initiated_checkouts: 0,
+      conversion_value: 0,
+      engagement: 0,
+      leads: 0,
+    };
+
+    for (const campaign of campaignData) {
+      aggregated.spend += Number(campaign.spend || 0);
+      aggregated.impressions += Number(campaign.impressions || 0);
+      aggregated.clicks += Number(campaign.clicks || 0);
+      aggregated.reach += Number(campaign.reach || 0);
+
+      if (campaign.actions) {
+        aggregated.purchases += this.getActionValue(
+          campaign.actions,
+          "omni_purchase",
+        );
+        aggregated.add_to_cart += this.getActionValue(
+          campaign.actions,
+          "omni_add_to_cart",
+        );
+        aggregated.initiated_checkouts += this.getActionValue(
+          campaign.actions,
+          "initiate_checkout",
+        );
+        aggregated.engagement +=
+          this.getActionValue(campaign.actions, "post_engagement") ||
+          this.getActionValue(campaign.actions, "page_engagement");
+        aggregated.leads += this.getActionValue(campaign.actions, "lead");
+      }
+
+      if (campaign.action_values) {
+        aggregated.conversion_value += this.getActionMonetaryValue(
+          campaign.action_values,
+          "omni_purchase",
+        );
+      }
+    }
+    const metrics: KPIs = {
+      spend: aggregated.spend,
+      impressions: aggregated.impressions,
+      clicks: aggregated.clicks,
+      reach: aggregated.reach,
+      purchases: aggregated.purchases,
+      add_to_cart: aggregated.add_to_cart,
+      initiated_checkouts: aggregated.initiated_checkouts,
+      conversion_value: aggregated.conversion_value,
+      engagement: aggregated.engagement,
+
+      cpc: aggregated.clicks > 0 ? aggregated.spend / aggregated.clicks : 0,
+      ctr:
+        aggregated.impressions > 0
+          ? (aggregated.clicks / aggregated.impressions) * 100
+          : 0,
+      cpm:
+        aggregated.impressions > 0
+          ? (aggregated.spend / aggregated.impressions) * 1000
+          : 0,
+      cpp:
+        aggregated.reach > 0 ? (aggregated.spend / aggregated.reach) * 1000 : 0,
+      purchase_roas:
+        aggregated.spend > 0
+          ? aggregated.conversion_value / aggregated.spend
+          : 0,
+      cost_per_purchase:
+        aggregated.purchases > 0 ? aggregated.spend / aggregated.purchases : 0,
+      cost_per_add_to_cart:
+        aggregated.add_to_cart > 0
+          ? aggregated.spend / aggregated.add_to_cart
+          : 0,
+      conversion_rate:
+        aggregated.clicks > 0
+          ? (aggregated.purchases / aggregated.clicks) * 100
+          : 0,
+
+      ...(aggregated.leads > 0
+        ? {
+            leads: aggregated.leads,
+            cost_per_lead: aggregated.spend / aggregated.leads,
+          }
+        : {}),
+    };
+
+    return Object.fromEntries(
+      Object.entries(metrics).filter(([key]) => selectedMetrics.includes(key)),
+    ) as KPIs;
+  }
+
+  private static aggregateCampaignDataToGraphs(
+    campaignData: any[],
+    selectedMetrics: string[],
+  ): Graph[] {
+    if (!campaignData || campaignData.length === 0) return [];
+
+    const dateGroups = new Map<string, any[]>();
+
+    for (const dataPoint of campaignData) {
+      const date = dataPoint.date_start;
+      if (!dateGroups.has(date)) {
+        dateGroups.set(date, []);
+      }
+      dateGroups.get(date)!.push(dataPoint);
+    }
+
+    const graphs: Graph[] = [];
+
+    for (const [date, dayData] of dateGroups) {
+      const aggregated = {
+        spend: 0,
+        impressions: 0,
+        clicks: 0,
+        reach: 0,
+        purchases: 0,
+        add_to_cart: 0,
+        initiated_checkouts: 0,
+        conversion_value: 0,
+        engagement: 0,
+        leads: 0,
+      };
+
+      for (const campaign of dayData) {
+        aggregated.spend += Number(campaign.spend || 0);
+        aggregated.impressions += Number(campaign.impressions || 0);
+        aggregated.clicks += Number(campaign.clicks || 0);
+        aggregated.reach += Number(campaign.reach || 0);
+
+        if (campaign.actions) {
+          aggregated.purchases += this.getActionValue(
+            campaign.actions,
+            "omni_purchase",
+          );
+          aggregated.add_to_cart += this.getActionValue(
+            campaign.actions,
+            "omni_add_to_cart",
+          );
+          aggregated.initiated_checkouts += this.getActionValue(
+            campaign.actions,
+            "initiate_checkout",
+          );
+          aggregated.engagement +=
+            this.getActionValue(campaign.actions, "post_engagement") ||
+            this.getActionValue(campaign.actions, "page_engagement");
+          aggregated.leads += this.getActionValue(campaign.actions, "lead");
+        }
+
+        if (campaign.action_values) {
+          aggregated.conversion_value += this.getActionMonetaryValue(
+            campaign.action_values,
+            "omni_purchase",
+          );
+        }
+      }
+
+      const graph: Graph = {
+        date_start: date,
+        date_stop: dayData[0].date_stop,
+        spend: aggregated.spend,
+        impressions: aggregated.impressions,
+        clicks: aggregated.clicks,
+        reach: aggregated.reach,
+        purchases: aggregated.purchases,
+        add_to_cart: aggregated.add_to_cart,
+        initiated_checkouts: aggregated.initiated_checkouts,
+        conversion_value: aggregated.conversion_value,
+        engagement: aggregated.engagement,
+
+        cpc: aggregated.clicks > 0 ? aggregated.spend / aggregated.clicks : 0,
+        ctr:
+          aggregated.impressions > 0
+            ? (aggregated.clicks / aggregated.impressions) * 100
+            : 0,
+        cpm:
+          aggregated.impressions > 0
+            ? (aggregated.spend / aggregated.impressions) * 1000
+            : 0,
+        cpp:
+          aggregated.reach > 0
+            ? (aggregated.spend / aggregated.reach) * 1000
+            : 0,
+        purchase_roas:
+          aggregated.spend > 0
+            ? aggregated.conversion_value / aggregated.spend
+            : 0,
+        cost_per_purchase:
+          aggregated.purchases > 0
+            ? aggregated.spend / aggregated.purchases
+            : 0,
+        cost_per_add_to_cart:
+          aggregated.add_to_cart > 0
+            ? aggregated.spend / aggregated.add_to_cart
+            : 0,
+        conversion_rate:
+          aggregated.clicks > 0
+            ? (aggregated.purchases / aggregated.clicks) * 100
+            : 0,
+
+        ...(aggregated.leads > 0
+          ? {
+              leads: aggregated.leads,
+              cost_per_lead: aggregated.spend / aggregated.leads,
+            }
+          : {}),
+      };
+
+      const filteredGraph = Object.fromEntries(
+        selectedMetrics
+          .map((key) => [key, graph[key as keyof Graph]])
+          .filter(([, v]) => v !== undefined),
+      ) as Graph;
+
+      filteredGraph.date_start = date;
+      filteredGraph.date_stop = dayData[0].date_stop;
+
+      graphs.push(filteredGraph);
+    }
+
+    graphs.sort(
+      (a, b) =>
+        new Date(a.date_start).getTime() - new Date(b.date_start).getTime(),
+    );
+
+    return graphs;
+  }
+
+  protected static normalizeKPIs(
     apiData: any,
     selectedMetrics: string[],
   ): KPIs | null {
@@ -169,7 +432,7 @@ export class FacebookDataUtil {
     ) as KPIs;
   }
 
-  private static normalizeGraphs(graphs: any[], metrics: string[]): Graph[] {
+  protected static normalizeGraphs(graphs: any[], metrics: string[]): Graph[] {
     return graphs.map((g) => {
       const spend = parseFloat(g.spend || "0");
       const clicks = parseInt(g.clicks || "0");
@@ -309,6 +572,7 @@ export class FacebookDataUtil {
         adCreativeId: "",
         thumbnailUrl: "",
         sourceUrl: "",
+        ad_name: ad.ad_name,
         spend,
         impressions: ad.impressions,
         clicks,
