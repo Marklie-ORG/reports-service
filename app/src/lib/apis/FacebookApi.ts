@@ -55,7 +55,10 @@ export class FacebookApi {
       throw new Error(
         `No token found for organizationUuid ${organizationUuid}`,
       );
-    return new FacebookApi(tokenRecord.token, accountId);
+    return new FacebookApi(
+      "EAASERizF7PoBO9DxAMbCWwZAJ4htpGSdj6kmRbdKBLLEiPrZC8bOtoXyoBiwNhq3POHk2rEVXRviwRE2gWYzFSVwvQMi2vZAZCB8bmvQbkZCEvyNWD2KpHcNoMEpWtvTo6NfZAG7IKivZA3ZCMzrxapNGQ4RHmQ6s4a333bEjZCZATlmEBzUQ05KMcJRHaEXGa",
+      accountId,
+    );
   }
 
   private setupInterceptors() {
@@ -239,6 +242,7 @@ export class FacebookApi {
       breakdowns?: string[];
       actionBreakdowns?: string[];
       timeIncrement?: number;
+      additionalFields?: string[];
     } = {},
   ): Promise<any[]> {
     const {
@@ -247,6 +251,7 @@ export class FacebookApi {
       breakdowns = [],
       actionBreakdowns = [],
       timeIncrement,
+      additionalFields = [],
     } = options;
 
     if (!fields.length) {
@@ -269,6 +274,7 @@ export class FacebookApi {
         : { date_preset: datePreset }),
       __cppo: 1,
       ...(timeIncrement ? { time_increment: timeIncrement } : {}),
+      ...(additionalFields ? { additionalFields: additionalFields } : {}),
     };
 
     if (breakdowns.length) params.breakdowns = breakdowns.join(",");
@@ -322,6 +328,7 @@ export class FacebookApi {
     params: Record<string, any>,
   ): Promise<any[]> {
     const jobRes = await this.executeWithCircuitBreaker(async () => {
+      console.log(endpoint, params.fields);
       return this.api.post(endpoint, null, {
         params: { ...params, async: true },
       });
@@ -411,7 +418,10 @@ export class FacebookApi {
     if (adIds.length === 0) return insights;
 
     try {
-      const ads = await this.getEntitiesBatch(adIds, ["id", "creative{id}"]);
+      const adFields = ["id", "creative{id}"];
+
+      const ads = await this.getEntitiesBatch(adIds, adFields);
+
       const creativeIds = ads
         .map((ad) => ad.creative?.id)
         .filter((id): id is string => !!id);
@@ -433,6 +443,7 @@ export class FacebookApi {
           purchases: getActionValue("purchase"),
           addToCart: getActionValue("add_to_cart"),
           roas: insight.purchase_roas?.[0]?.value ?? 0,
+          ad_name: insight?.ad_name ?? null,
           creative: {
             id: creative?.id ?? null,
             thumbnail_url: creative?.thumbnail_url ?? null,
