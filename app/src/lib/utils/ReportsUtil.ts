@@ -214,9 +214,11 @@ export class ReportsUtil {
     try {
       const page = await browser.newPage();
       await page.goto(`${baseUrl}/pdf-report/${reportUuid}`, {
-        waitUntil: "load",
+        waitUntil: "domcontentloaded",
         timeout: 120000,
       });
+
+      await page.waitForSelector(".graph-card", { timeout: 60000 });
 
       const dashboardHeight = await page.evaluate(() => {
         const el = document.querySelector(".report-container");
