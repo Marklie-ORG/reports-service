@@ -19,7 +19,6 @@ import type {
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { Temporal } from "@js-temporal/polyfill";
 import { CronUtil } from "../utils/CronUtil.js";
-import cronstrue from "cronstrue";
 
 const database = await Database.getInstance();
 const logger = Log.getInstance().extend("reports-service");
@@ -75,7 +74,6 @@ export class SchedulesService {
         throw error;
       }
 
-      logger.error("Failed to schedule report:", error);
       throw MarklieError.internal(
         "Failed to schedule report",
         {
@@ -264,7 +262,9 @@ export class SchedulesService {
           ...opt,
           nextRun: formattedNextRun,
           lastRun: formattedLastRun,
-          frequency: cronstrue.toString(opt.cronExpression),
+          frequency:
+            opt.jobData!.frequency.charAt(0).toUpperCase() +
+            opt.jobData!.frequency.slice(1),
           ...(images && { images }),
         };
       }),
