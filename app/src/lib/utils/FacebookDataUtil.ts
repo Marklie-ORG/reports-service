@@ -46,25 +46,36 @@ export class FacebookDataUtil {
     const selectedGraphs = metrics.graphs?.metrics?.map((m) => m.name) || [];
     const selectedCampaigns =
       metrics.campaigns?.metrics?.map((m) => m.name) || [];
+    const customMetrics = metrics.customMetrics || [];
 
-    const kpiFields = this.resolveMetricsFromMap(
-      selectedKpis,
-      AVAILABLE_KPI_METRICS,
-    );
+    const kpiFields = [
+      ...this.resolveMetricsFromMap(selectedKpis, AVAILABLE_KPI_METRICS),
+      ...(customMetrics.length ? ["actions"] : []),
+    ];
+
     const adsFields = this.resolveMetricsFromMap(
       selectedAds,
       AVAILABLE_ADS_METRICS,
     );
-    const graphFields = this.resolveMetricsFromMap(
-      [...selectedGraphs, "date_start", "date_stop"],
-      AVAILABLE_GRAPH_METRICS,
-    );
-    const campaignFields = this.resolveMetricsFromMap(
-      [...selectedCampaigns, "campaign_id", "campaign_name"],
-      AVAILABLE_CAMPAIGN_METRICS,
-    );
 
-    if (selectedKpis.length) {
+    const graphFields = [
+      ...this.resolveMetricsFromMap(
+        [...selectedGraphs, "date_start", "date_stop"],
+
+        AVAILABLE_GRAPH_METRICS,
+      ),
+      ...(customMetrics.length ? ["actions"] : []),
+    ];
+
+    const campaignFields = [
+      ...this.resolveMetricsFromMap(
+        [...selectedCampaigns, "campaign_id", "campaign_name"],
+        AVAILABLE_CAMPAIGN_METRICS,
+      ),
+      ...(customMetrics.length ? ["actions"] : []),
+    ];
+
+    if (selectedKpis.length || customMetrics.length) {
       fetches.campaignDataForKPIs = api.getInsightsSmart(
         "campaign",
         kpiFields,
@@ -79,7 +90,7 @@ export class FacebookDataUtil {
       fetches.ads = api.getAdInsightsWithThumbnails(adsFields, datePreset);
     }
 
-    if (selectedGraphs.length) {
+    if (selectedGraphs.length || customMetrics.length) {
       fetches.campaignDataForGraphs = api.getInsightsSmart(
         "campaign",
         graphFields,
@@ -90,10 +101,11 @@ export class FacebookDataUtil {
       );
     }
 
-    if (selectedCampaigns.length)
+    if (selectedCampaigns.length) {
       fetches.campaigns = api.getInsightsSmart("campaign", campaignFields, {
         datePreset,
       });
+    }
 
     const resolved = await Promise.all(
       Object.entries(fetches).map(([key, promise]) =>
@@ -116,17 +128,23 @@ export class FacebookDataUtil {
       ? this.aggregateCampaignDataToKPIs(
           result.campaignDataForKPIs,
           selectedKpis,
+          customMetrics,
         )
       : null;
-
-    const campaigns = result.campaigns
-      ? this.normalizeCampaigns(result.campaigns, selectedCampaigns)
-      : [];
 
     const graphs = result.campaignDataForGraphs
       ? this.aggregateCampaignDataToGraphs(
           result.campaignDataForGraphs,
           selectedGraphs,
+          customMetrics,
+        )
+      : [];
+
+    const campaigns = result.campaigns
+      ? this.normalizeCampaigns(
+          result.campaigns,
+          selectedCampaigns,
+          customMetrics,
         )
       : [];
 
@@ -141,6 +159,7 @@ export class FacebookDataUtil {
   private static aggregateCampaignDataToKPIs(
     campaignData: any[],
     selectedMetrics: string[],
+    selectedCustomMetrics: { id: string; name: string }[] = [],
   ): KPIs | null {
     if (!campaignData || campaignData.length === 0) return null;
 
@@ -156,6 +175,11 @@ export class FacebookDataUtil {
       engagement: 0,
       leads: 0,
     };
+
+    const customMetricMap: Record<string, number> = {};
+    const selectedCustomMap = new Map(
+      selectedCustomMetrics.map((m) => [m.id, m.name]),
+    );
 
     for (const campaign of campaignData) {
       aggregated.spend += Number(campaign.spend || 0);
@@ -180,6 +204,20 @@ export class FacebookDataUtil {
           this.getActionValue(campaign.actions, "post_engagement") ||
           this.getActionValue(campaign.actions, "page_engagement");
         aggregated.leads += this.getActionValue(campaign.actions, "lead");
+
+        for (const action of campaign.actions) {
+          const type = action.action_type;
+          const value = Number(action.value ?? 0);
+
+          const match = type?.match(/^offsite_conversion\.custom\.(\d+)$/);
+          if (match) {
+            const id = match[1];
+            const name = selectedCustomMap.get(id);
+            if (name) {
+              customMetricMap[name] = (customMetricMap[name] ?? 0) + value;
+            }
+          }
+        }
       }
 
       if (campaign.action_values) {
@@ -189,7 +227,8 @@ export class FacebookDataUtil {
         );
       }
     }
-    const metrics: KPIs = {
+
+    const metrics: Record<string, any> = {
       spend: aggregated.spend,
       impressions: aggregated.impressions,
       clicks: aggregated.clicks,
@@ -225,7 +264,6 @@ export class FacebookDataUtil {
         aggregated.clicks > 0
           ? (aggregated.purchases / aggregated.clicks) * 100
           : 0,
-
       ...(aggregated.leads > 0
         ? {
             leads: aggregated.leads,
@@ -234,15 +272,30 @@ export class FacebookDataUtil {
         : {}),
     };
 
+    for (const [name, value] of Object.entries(customMetricMap)) {
+      metrics[name] = value;
+    }
+
+    const normalize = (s: string) => s.trim().toLowerCase();
+
+    const allowedKeys = new Set([
+      ...selectedMetrics.map(normalize),
+      ...selectedCustomMetrics.map((m) => normalize(m.name)),
+    ]);
+
     return Object.fromEntries(
-      Object.entries(metrics).filter(([key]) => selectedMetrics.includes(key)),
-    ) as KPIs;
+      Object.entries(metrics).filter(([key]) =>
+        allowedKeys.has(normalize(key)),
+      ),
+    );
   }
 
   private static aggregateCampaignDataToGraphs(
     campaignData: any[],
     selectedMetrics: string[],
+    customMetrics: { id: string; name: string }[],
   ): Graph[] {
+    console.log(campaignData[0].actions);
     if (!campaignData || campaignData.length === 0) return [];
 
     const dateGroups = new Map<string, any[]>();
@@ -255,10 +308,15 @@ export class FacebookDataUtil {
       dateGroups.get(date)!.push(dataPoint);
     }
 
+    const customMetricIdToName = new Map<string, string>();
+    for (const cm of customMetrics) {
+      customMetricIdToName.set(cm.id, cm.name);
+    }
+
     const graphs: Graph[] = [];
 
     for (const [date, dayData] of dateGroups) {
-      const aggregated = {
+      const aggregated: Record<string, number> = {
         spend: 0,
         impressions: 0,
         clicks: 0,
@@ -271,6 +329,10 @@ export class FacebookDataUtil {
         leads: 0,
       };
 
+      for (const cm of customMetrics) {
+        aggregated[cm.name] = 0;
+      }
+
       for (const campaign of dayData) {
         aggregated.spend += Number(campaign.spend || 0);
         aggregated.impressions += Number(campaign.impressions || 0);
@@ -278,6 +340,22 @@ export class FacebookDataUtil {
         aggregated.reach += Number(campaign.reach || 0);
 
         if (campaign.actions) {
+          for (const action of campaign.actions) {
+            const { action_type, value } = action;
+            if (!action_type || !value) continue;
+
+            const match = action_type.match(
+              /^offsite_conversion\.custom\.(\d+)$/,
+            );
+            if (match) {
+              const id = match[1];
+              const name = customMetricIdToName.get(id);
+              if (name) {
+                aggregated[name] = (aggregated[name] ?? 0) + Number(value);
+              }
+            }
+          }
+
           aggregated.purchases += this.getActionValue(
             campaign.actions,
             "omni_purchase",
@@ -304,7 +382,7 @@ export class FacebookDataUtil {
         }
       }
 
-      const graph: Graph = {
+      const graph: Record<string, any> = {
         date_start: date,
         date_stop: dayData[0].date_stop,
         spend: aggregated.spend,
@@ -346,18 +424,20 @@ export class FacebookDataUtil {
           aggregated.clicks > 0
             ? (aggregated.purchases / aggregated.clicks) * 100
             : 0,
-
-        ...(aggregated.leads > 0
-          ? {
-              leads: aggregated.leads,
-              cost_per_lead: aggregated.spend / aggregated.leads,
-            }
-          : {}),
       };
 
+      if (aggregated.leads > 0) {
+        graph.leads = aggregated.leads;
+        graph.cost_per_lead = aggregated.spend / aggregated.leads;
+      }
+
+      for (const cm of customMetrics) {
+        graph[cm.name] = aggregated[cm.name];
+      }
+
       const filteredGraph = Object.fromEntries(
-        selectedMetrics
-          .map((key) => [key, graph[key as keyof Graph]])
+        [...selectedMetrics, ...customMetrics.map((cm) => cm.name)]
+          .map((key) => [key, graph[key]])
           .filter(([, v]) => v !== undefined),
       ) as Graph;
 
@@ -488,13 +568,40 @@ export class FacebookDataUtil {
   private static normalizeCampaigns(
     campaigns: any[],
     selectedMetrics: string[],
+    customMetrics: { id: string; name: string }[] = [],
   ): Campaign[] {
+    const customMetricIdToName = new Map<string, string>();
+    for (const cm of customMetrics) {
+      customMetricIdToName.set(cm.id, cm.name);
+    }
+
     return campaigns.map((c, index) => {
       const spend = parseFloat(c.spend || "0");
       const clicks = parseInt(c.clicks || "0");
       const purchases = this.getActionValue(c.actions, "omni_purchase");
       const add_to_cart = this.getActionValue(c.actions, "omni_add_to_cart");
       const leads = this.getLeads(c.actions, "lead");
+
+      const customMetricMap: Record<string, number> = {};
+
+      if (c.actions) {
+        for (const action of c.actions) {
+          const { action_type, value } = action;
+          if (!action_type || !value) continue;
+
+          const match = action_type.match(
+            /^offsite_conversion\.custom\.(\d+)$/,
+          );
+          if (match) {
+            const id = match[1];
+            const name = customMetricIdToName.get(id);
+            if (name) {
+              customMetricMap[name] =
+                (customMetricMap[name] ?? 0) + Number(value);
+            }
+          }
+        }
+      }
 
       const campaign: Campaign = {
         index,
@@ -531,9 +638,16 @@ export class FacebookDataUtil {
               cost_per_lead: spend / leads,
             }
           : {}),
+        ...customMetricMap,
       };
 
-      const finalFields = ["index", "campaign_name", ...selectedMetrics];
+      const finalFields = [
+        "index",
+        "campaign_name",
+        ...selectedMetrics,
+        ...customMetrics.map((cm) => cm.name),
+      ];
+
       Object.keys(campaign).forEach((key) => {
         if (!finalFields.includes(key)) {
           delete campaign[key as keyof Campaign];

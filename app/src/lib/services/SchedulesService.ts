@@ -1,5 +1,9 @@
 import { ReportsUtil } from "../utils/ReportsUtil.js";
 import {
+  AVAILABLE_ADS_METRICS,
+  AVAILABLE_CAMPAIGN_METRICS,
+  AVAILABLE_GRAPH_METRICS,
+  AVAILABLE_KPI_METRICS,
   Database,
   GCSWrapper,
   Log,
@@ -19,6 +23,7 @@ import type {
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { Temporal } from "@js-temporal/polyfill";
 import { CronUtil } from "../utils/CronUtil.js";
+import { FacebookApi } from "../apis/FacebookApi.js";
 
 const database = await Database.getInstance();
 const logger = Log.getInstance().extend("reports-service");
@@ -351,5 +356,51 @@ export class SchedulesService {
     }
 
     await database.em.persistAndFlush(schedulingOption);
+  }
+
+  public async getAvailableMetricsForAdAccounts(clientUuid: string) {
+    const client = await database.em.findOne(
+      OrganizationClient,
+      {
+        uuid: clientUuid,
+      },
+      { populate: ["organization", "adAccounts"] },
+    );
+
+    if (!client) {
+      throw MarklieError.notFound("Client", clientUuid);
+    }
+
+    const api = await FacebookApi.create(client.organization.uuid);
+
+    const adAccountIds = client
+      .adAccounts!.getItems()
+      .map((acc) => acc.adAccountId);
+
+    const customMetricsByAdAccount =
+      await api.getCustomMetricsForAdAccounts(adAccountIds);
+
+    const result: Record<
+      string,
+      {
+        kpis: string[];
+        graphs: string[];
+        ads: string[];
+        campaigns: string[];
+        customMetrics: { id: string; name: string }[];
+      }
+    > = {};
+
+    for (const adAccountId of adAccountIds) {
+      result[adAccountId] = {
+        kpis: Object.keys(AVAILABLE_KPI_METRICS),
+        graphs: Object.keys(AVAILABLE_GRAPH_METRICS),
+        ads: Object.keys(AVAILABLE_ADS_METRICS),
+        campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS),
+        customMetrics: customMetricsByAdAccount[adAccountId] ?? [],
+      };
+    }
+
+    return result;
   }
 }

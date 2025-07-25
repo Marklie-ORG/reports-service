@@ -46,7 +46,7 @@ export class FacebookApi {
 
   static async create(
     organizationUuid: string,
-    accountId: string,
+    accountId?: string,
   ): Promise<FacebookApi> {
     const tokenRecord = await database.em.findOne(OrganizationToken, {
       organization: organizationUuid,
@@ -55,10 +55,7 @@ export class FacebookApi {
       throw new Error(
         `No token found for organizationUuid ${organizationUuid}`,
       );
-    return new FacebookApi(
-      "EAASERizF7PoBO9DxAMbCWwZAJ4htpGSdj6kmRbdKBLLEiPrZC8bOtoXyoBiwNhq3POHk2rEVXRviwRE2gWYzFSVwvQMi2vZAZCB8bmvQbkZCEvyNWD2KpHcNoMEpWtvTo6NfZAG7IKivZA3ZCMzrxapNGQ4RHmQ6s4a333bEjZCZATlmEBzUQ05KMcJRHaEXGa",
-      accountId,
-    );
+    return new FacebookApi(tokenRecord.token, accountId ?? "");
   }
 
   private setupInterceptors() {
@@ -267,7 +264,7 @@ export class FacebookApi {
       !["today", "yesterday", "last_7d"].includes(datePreset);
 
     const params: Record<string, any> = {
-      fields: fields.join(","),
+      fields: Array.from(new Set(fields)).join(","),
       level,
       ...(customDateRange
         ? { time_range: customDateRange }
@@ -597,5 +594,54 @@ export class FacebookApi {
       });
       return res.data;
     });
+  }
+
+  public async getCustomMetricsForAdAccounts(
+    adAccountIds: string[],
+  ): Promise<Record<string, { id: string; name: string }[]>> {
+    const result: Record<string, { id: string; name: string }[]> = {};
+
+    await Promise.all(
+      adAccountIds.map(async (adAccountId) => {
+        try {
+          const conversionsRes = await this.api.get(
+            `${adAccountId}/customconversions`,
+          );
+          const conversions = conversionsRes.data.data ?? [];
+
+          if (conversions.length === 0) return;
+
+          const details: { id: string; name: string }[] = [];
+
+          await Promise.allSettled(
+            conversions.map((cc: any) =>
+              this.api
+                .get(`${cc.id}`, {
+                  params: {
+                    fields: "name,custom_event_type,description,rule",
+                  },
+                })
+                .then((res) => {
+                  const data = res?.data;
+                  if (data?.id && data?.name) {
+                    details.push({ id: data.id, name: data.name });
+                  }
+                }),
+            ),
+          );
+
+          if (details.length > 0) {
+            result[adAccountId] = details;
+          }
+        } catch (err) {
+          console.warn(
+            `Error fetching custom conversions for ${adAccountId}`,
+            err,
+          );
+        }
+      }),
+    );
+
+    return result;
   }
 }
