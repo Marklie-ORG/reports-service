@@ -311,51 +311,89 @@ export class SchedulesService {
     };
   }
 
-  public async deleteSchedulingOption(uuid: string): Promise<void> {
-    const schedulingOption = await database.em.findOne(
+  public async deleteSchedulingOptions(uuids: string[]): Promise<void> {
+    const schedulingOptions = await database.em.find(
       SchedulingOption,
-      {
-        uuid,
-      },
+      { uuid: { $in: uuids } },
       { populate: ["scheduledJob"] },
     );
 
-    if (!schedulingOption) throw new Error("Scheduling option not found");
+    const reportQueue = ReportQueueService.getInstance();
 
-    if (schedulingOption.scheduledJob) {
-      const reportQueue = ReportQueueService.getInstance();
-
-      await reportQueue.removeScheduledJob(
-        schedulingOption.scheduledJob.bullJobId,
-      );
-      database.em.remove(schedulingOption.scheduledJob);
+    for (const option of schedulingOptions) {
+      if (option.scheduledJob) {
+        await reportQueue.removeScheduledJob(option.scheduledJob.bullJobId);
+        database.em.remove(option.scheduledJob);
+      }
+      database.em.remove(option);
     }
 
-    await database.em.removeAndFlush(schedulingOption);
+    await database.em.flush();
   }
 
-  public async stopSchedulingOption(uuid: string): Promise<void> {
-    const schedulingOption = await database.em.findOne(
+  public async stopSchedulingOptions(uuids: string[]): Promise<void> {
+    const schedulingOptions = await database.em.find(
       SchedulingOption,
-      {
-        uuid,
-      },
+      { uuid: { $in: uuids } },
       { populate: ["scheduledJob"] },
     );
 
-    if (!schedulingOption) throw new Error("Scheduling option not found");
+    const reportQueue = ReportQueueService.getInstance();
 
-    schedulingOption.isActive = false;
+    for (const option of schedulingOptions) {
+      option.isActive = false;
 
-    if (schedulingOption.scheduledJob) {
-      const reportQueue = ReportQueueService.getInstance();
-
-      await reportQueue.removeScheduledJob(
-        schedulingOption.scheduledJob.bullJobId,
-      );
+      if (option.scheduledJob) {
+        await reportQueue.removeScheduledJob(option.scheduledJob.bullJobId);
+      }
     }
 
-    await database.em.persistAndFlush(schedulingOption);
+    await database.em.persistAndFlush(schedulingOptions);
+  }
+
+  public async activateSchedulingOptions(uuids: string[]): Promise<void> {
+    const schedulingOptions = await database.em.find(
+      SchedulingOption,
+      { uuid: { $in: uuids } },
+      { populate: ["scheduledJob", "client"] },
+    );
+
+    const reportQueue = ReportQueueService.getInstance();
+
+    for (const option of schedulingOptions) {
+      if (!option.isActive) {
+        option.isActive = true;
+
+        const cronExpression = CronUtil.convertScheduleRequestToCron(
+          option.jobData as ReportScheduleRequest,
+        );
+
+        const jobPayload = this.buildJobPayload(
+          option.jobData as ReportScheduleRequest,
+          option.client,
+          option.uuid,
+        );
+
+        const newJob = await reportQueue.scheduleReport(
+          jobPayload,
+          cronExpression,
+        );
+        if (!newJob) {
+          throw new Error(
+            `Job not created for scheduling option ${option.uuid}`,
+          );
+        }
+
+        const scheduledJob = new ScheduledJob();
+        scheduledJob.bullJobId = newJob.id as string;
+        scheduledJob.schedulingOption = option;
+
+        database.em.persist(scheduledJob);
+        option.scheduledJob = scheduledJob;
+      }
+    }
+
+    await database.em.flush();
   }
 
   public async getAvailableMetricsForAdAccounts(clientUuid: string) {
