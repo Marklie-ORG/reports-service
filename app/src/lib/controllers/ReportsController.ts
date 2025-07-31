@@ -19,10 +19,7 @@ export class ReportsController extends Router {
     this.get("/:uuid", this.getReport.bind(this));
     this.get("/", this.getReports.bind(this));
     this.post("/send-after-review", this.sendAfterReview.bind(this));
-    this.put(
-      "/report-images/:uuid",
-      this.updateReportImages.bind(this),
-    );
+    this.put("/report-images/:uuid", this.updateReportImages.bind(this));
   }
 
   private async getReport(ctx: Context) {

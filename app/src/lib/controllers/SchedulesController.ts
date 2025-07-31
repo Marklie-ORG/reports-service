@@ -1,13 +1,10 @@
 import Router from "koa-router";
 import type { Context } from "koa";
 import { MarklieError, User } from "marklie-ts-core";
-import {
-  AVAILABLE_ADS_METRICS,
-  AVAILABLE_CAMPAIGN_METRICS,
-  AVAILABLE_GRAPH_METRICS,
-  AVAILABLE_KPI_METRICS,
-  type ReportScheduleRequest,
-  type SchedulingOptionMetrics,
+import type {
+  ReportScheduleRequest,
+  ScheduleBulkActionRequest,
+  SchedulingOptionMetrics,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { SchedulesService } from "../services/SchedulesService.js";
 
@@ -20,7 +17,7 @@ export class SchedulesController extends Router {
   }
 
   private setUpRoutes() {
-    this.get("/available-metrics", this.getAvailableMetrics.bind(this));
+    this.get("/available-metrics/:uuid", this.getAvailableMetrics.bind(this));
     this.post("/schedule", this.scheduleReport.bind(this));
 
     this.get("/client/:clientUuid", this.getSchedulingOptions.bind(this));
@@ -28,11 +25,12 @@ export class SchedulesController extends Router {
       "/report-metrics-selections/:uuid",
       this.updateReportMetricsSelections.bind(this),
     );
-    this.put("/:uuid/stop", this.stopSchedulingOption.bind(this));
+    this.put("/stop", this.stopSchedulingOptions.bind(this));
+    this.put("/delete", this.deleteSchedulingOption.bind(this));
+    this.put("/activate", this.activateSchedulingOption.bind(this));
 
     this.get("/:uuid", this.getSchedulingOption.bind(this));
     this.put("/:uuid", this.updateSchedulingOption.bind(this));
-    this.delete("/:uuid", this.deleteSchedulingOption.bind(this));
   }
 
   private async scheduleReport(ctx: Context) {
@@ -62,6 +60,8 @@ export class SchedulesController extends Router {
   }
 
   private async updateSchedulingOption(ctx: Context) {
+    console.log(ctx.params.uuid);
+
     const user: User = ctx.state.user as User;
     const scheduleOption: ReportScheduleRequest = ctx.request
       .body as ReportScheduleRequest;
@@ -80,7 +80,8 @@ export class SchedulesController extends Router {
 
   private async getSchedulingOption(ctx: Context) {
     const uuid = ctx.params.uuid as string;
-    console.error('"ASDASDAS');
+    console.log("das", uuid);
+
     ctx.body = await this.schedulesService.getSchedulingOption(uuid);
     ctx.status = 200;
   }
@@ -93,12 +94,10 @@ export class SchedulesController extends Router {
   }
 
   private async getAvailableMetrics(ctx: Context) {
-    ctx.body = {
-      kpis: Object.keys(AVAILABLE_KPI_METRICS),
-      graphs: Object.keys(AVAILABLE_GRAPH_METRICS),
-      ads: Object.keys(AVAILABLE_ADS_METRICS),
-      campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS),
-    };
+    const clientUuid = ctx.params.uuid as string;
+
+    ctx.body =
+      await this.schedulesService.getAvailableMetricsForAdAccounts(clientUuid);
     ctx.status = 200;
   }
 
@@ -119,9 +118,9 @@ export class SchedulesController extends Router {
   }
 
   private async deleteSchedulingOption(ctx: Context) {
-    const uuid = ctx.params.uuid as string;
+    const body = ctx.request.body as ScheduleBulkActionRequest;
 
-    await this.schedulesService.deleteSchedulingOption(uuid);
+    await this.schedulesService.deleteSchedulingOptions(body.uuids);
 
     ctx.body = {
       message: "Report schedule deleted successfully",
@@ -129,13 +128,24 @@ export class SchedulesController extends Router {
     ctx.status = 200;
   }
 
-  private async stopSchedulingOption(ctx: Context) {
-    const uuid = ctx.params.uuid as string;
+  private async stopSchedulingOptions(ctx: Context) {
+    const body = ctx.request.body as ScheduleBulkActionRequest;
 
-    await this.schedulesService.stopSchedulingOption(uuid);
+    await this.schedulesService.stopSchedulingOptions(body.uuids);
 
     ctx.body = {
       message: "Report schedule stopped (disabled) successfully",
+    };
+    ctx.status = 200;
+  }
+
+  private async activateSchedulingOption(ctx: Context) {
+    const body = ctx.request.body as ScheduleBulkActionRequest;
+
+    await this.schedulesService.activateSchedulingOptions(body.uuids);
+
+    ctx.body = {
+      message: "Report schedule deleted successfully",
     };
     ctx.status = 200;
   }
