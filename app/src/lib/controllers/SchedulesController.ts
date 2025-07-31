@@ -60,8 +60,6 @@ export class SchedulesController extends Router {
   }
 
   private async updateSchedulingOption(ctx: Context) {
-    console.log(ctx.params.uuid);
-
     const user: User = ctx.state.user as User;
     const scheduleOption: ReportScheduleRequest = ctx.request
       .body as ReportScheduleRequest;
@@ -80,7 +78,6 @@ export class SchedulesController extends Router {
 
   private async getSchedulingOption(ctx: Context) {
     const uuid = ctx.params.uuid as string;
-    console.log("das", uuid);
 
     ctx.body = await this.schedulesService.getSchedulingOption(uuid);
     ctx.status = 200;

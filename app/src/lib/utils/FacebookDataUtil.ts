@@ -295,7 +295,6 @@ export class FacebookDataUtil {
     selectedMetrics: string[],
     customMetrics: { id: string; name: string }[],
   ): Graph[] {
-    console.log(campaignData[0].actions);
     if (!campaignData || campaignData.length === 0) return [];
 
     const dateGroups = new Map<string, any[]>();

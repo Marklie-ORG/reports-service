@@ -325,7 +325,6 @@ export class FacebookApi {
     params: Record<string, any>,
   ): Promise<any[]> {
     const jobRes = await this.executeWithCircuitBreaker(async () => {
-      console.log(endpoint, params.fields);
       return this.api.post(endpoint, null, {
         params: { ...params, async: true },
       });
