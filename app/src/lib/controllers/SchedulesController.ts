@@ -22,15 +22,17 @@ export class SchedulesController extends Router {
   private setUpRoutes() {
     this.get("/available-metrics", this.getAvailableMetrics.bind(this));
     this.post("/schedule", this.scheduleReport.bind(this));
-    this.get("/:uuid", this.getSchedulingOption.bind(this));
+
     this.get("/client/:clientUuid", this.getSchedulingOptions.bind(this));
-    this.put("/:uuid", this.updateSchedulingOption.bind(this));
     this.put(
       "/report-metrics-selections/:uuid",
       this.updateReportMetricsSelections.bind(this),
     );
-    this.delete("/:uuid", this.deleteSchedulingOption.bind(this));
     this.put("/:uuid/stop", this.stopSchedulingOption.bind(this));
+
+    this.get("/:uuid", this.getSchedulingOption.bind(this));
+    this.put("/:uuid", this.updateSchedulingOption.bind(this));
+    this.delete("/:uuid", this.deleteSchedulingOption.bind(this));
   }
 
   private async scheduleReport(ctx: Context) {
@@ -78,7 +80,7 @@ export class SchedulesController extends Router {
 
   private async getSchedulingOption(ctx: Context) {
     const uuid = ctx.params.uuid as string;
-
+    console.error('"ASDASDAS');
     ctx.body = await this.schedulesService.getSchedulingOption(uuid);
     ctx.status = 200;
   }

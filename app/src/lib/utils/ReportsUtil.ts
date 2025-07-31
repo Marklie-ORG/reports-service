@@ -129,6 +129,7 @@ export class ReportsUtil {
         userReportDescription: "",
         messages: data.messages,
         images: data.images,
+        reportName: data.reportName,
       },
     });
 
@@ -217,10 +218,10 @@ export class ReportsUtil {
         timeout: 120000,
       });
 
-      await page.waitForSelector(".graph-section");
+      await page.waitForSelector(".graph-card", { timeout: 60000 });
 
       const dashboardHeight = await page.evaluate(() => {
-        const el = document.querySelector(".dashboard");
+        const el = document.querySelector(".report-container");
         return el ? el.scrollHeight : 2000;
       });
 
@@ -305,7 +306,7 @@ export class ReportsUtil {
 
         nextRun = nextRun.add({ days: daysUntilTarget });
 
-        if (nextRun <= now) {
+        if (Temporal.ZonedDateTime.compare(nextRun, now) <= 0) {
           nextRun = nextRun.add({ days: 14 });
         }
 
@@ -322,7 +323,10 @@ export class ReportsUtil {
           millisecond: 0,
         });
 
-        nextRun = proposed < now ? proposed.add({ months: 1 }) : proposed;
+        nextRun =
+          Temporal.ZonedDateTime.compare(proposed, now) < 0
+            ? proposed.add({ months: 1 })
+            : proposed;
 
         break;
       }
@@ -332,7 +336,7 @@ export class ReportsUtil {
         const custom = now.with({ hour, minute, second: 0, millisecond: 0 });
 
         nextRun =
-          custom <= now
+          Temporal.ZonedDateTime.compare(custom, now) <= 0
             ? now.add({ days: interval })
             : custom.add({ days: interval });
 
