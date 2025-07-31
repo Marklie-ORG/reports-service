@@ -3,6 +3,7 @@ import koabodyparser from "koa-bodyparser";
 import cors from "@koa/cors";
 import "dotenv/config";
 import {
+  ActivityLogMiddleware,
   AuthMiddleware,
   CookiesMiddleware,
   Database,
@@ -44,6 +45,7 @@ app.use(CookiesMiddleware);
 app.use(AuthMiddleware([/^\/api\/reports\/[^/]+$/]));
 app.use(ValidationMiddleware());
 app.use(ErrorMiddleware());
+app.use(ActivityLogMiddleware());
 
 app.use(new ReportsController().routes());
 app.use(new ReportsController().allowedMethods());
