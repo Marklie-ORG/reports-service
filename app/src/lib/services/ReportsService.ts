@@ -10,6 +10,7 @@ import {
 } from "marklie-ts-core";
 import { Temporal } from "@js-temporal/polyfill";
 import { ReportsConfigService } from "../config/config.js";
+import { ReportQueueService } from "./ReportsQueueService.js";
 
 const database = await Database.getInstance();
 const logger = Log.getInstance().extend("reports-service");
@@ -31,9 +32,11 @@ export class ReportsService {
     );
   }
 
-  async sendReportAfterReview(uuid: string) {
+  async sendReportAfterReview(uuid: string, sendAt?: string) {
     const report = await database.em.findOne(Report, { uuid });
     if (!report) throw new Error(`Report ${uuid} not found`);
+
+    const clientTimeZone = report.metadata?.timeZone ?? "UTC";
 
     const pdfBuffer = await ReportsUtil.generateReportPdf(uuid);
     const filePath = ReportsUtil.generateFilePath(
@@ -49,15 +52,8 @@ export class ReportsService {
       false,
       false,
     );
-    const plainDate = Temporal.Now.zonedDateTimeISO(
-      report.metadata?.timeZone,
-    ).toPlainDate();
-    report.reviewedAt = new Date(
-      plainDate.toZonedDateTime({
-        timeZone: report.metadata?.timeZone,
-        plainTime: "00:00",
-      }).epochMilliseconds,
-    );
+
+    report.reviewedAt = new Date();
 
     await database.em.flush();
 
@@ -68,8 +64,30 @@ export class ReportsService {
       messages: report.metadata?.messages,
     };
 
-    logger.info("Sending reviewed report to notification service.");
-    await PubSubWrapper.publishMessage("notification-send-report", payload);
+    if (sendAt) {
+      const plainDateTime = Temporal.PlainDateTime.from(sendAt);
+      const sendAtZoned = plainDateTime.toZonedDateTime(clientTimeZone);
+      const delayMs =
+        sendAtZoned.epochMilliseconds -
+        Temporal.Now.instant().epochMilliseconds;
+
+      if (delayMs > 0) {
+        logger.info(
+          `Delaying report delivery to ${sendAtZoned.toString()} (${delayMs}ms)`,
+        );
+
+        await ReportQueueService.getInstance().scheduleOneTimeReport(
+          payload,
+          delayMs,
+        );
+      } else {
+        logger.warn("sendAt is in the past, sending immediately");
+        await PubSubWrapper.publishMessage("notification-send-report", payload);
+      }
+    } else {
+      logger.info("Sending reviewed report immediately");
+      await PubSubWrapper.publishMessage("notification-send-report", payload);
+    }
 
     const log = database.em.create(ActivityLog, {
       organization: report.organization.uuid,
@@ -83,11 +101,8 @@ export class ReportsService {
 
     await database.em.persistAndFlush(log);
   }
-  
-  async updateReportImages(
-    uuid: string,
-    images: ReportImages,
-  ) {
+
+  async updateReportImages(uuid: string, images: ReportImages) {
     const report = await database.em.findOne(Report, { uuid });
 
     if (!report) {
@@ -97,5 +112,4 @@ export class ReportsService {
     report.metadata!.images = images;
     await database.em.persistAndFlush(report);
   }
-
 }

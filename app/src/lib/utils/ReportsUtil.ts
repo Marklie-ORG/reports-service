@@ -88,18 +88,25 @@ export class ReportsUtil {
       client: clientUuid,
     });
 
-    const reportPromises = adAccounts.map(
-      (adAccount: ClientFacebookAdAccount) =>
-        FacebookDataUtil.getAllReportData(
+    const reportPromises = adAccounts
+      .map((adAccount) => {
+        const metrics = data.adAccountMetrics.find(
+          (m) => m.adAccountId === adAccount.adAccountId,
+        );
+
+        if (!metrics) return null;
+
+        return FacebookDataUtil.getAllReportData(
           data.organizationUuid,
           adAccount.adAccountId,
           data.datePreset,
-          data.metrics,
+          metrics,
         ).then((reportData) => ({
           adAccountId: adAccount.adAccountId,
           ...reportData,
-        })),
-    );
+        }));
+      })
+      .filter(Boolean);
 
     const adAccountReports = await Promise.all(reportPromises);
 
@@ -123,7 +130,7 @@ export class ReportsUtil {
       metadata: {
         timeZone: data.timeZone,
         datePreset: data.datePreset,
-        metricsSelections: data.metrics,
+        adAccountMetrics: data.adAccountMetrics,
         loomLink: "",
         aiGeneratedContent: "",
         userReportDescription: "",

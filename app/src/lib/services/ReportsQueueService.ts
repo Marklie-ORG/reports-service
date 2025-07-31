@@ -1,4 +1,4 @@
-import { BullMQWrapper, RedisClient } from "marklie-ts-core";
+import { BullMQWrapper, PubSubWrapper, RedisClient } from "marklie-ts-core";
 import type { ReportJobData } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { ReportsUtil } from "../utils/ReportsUtil.js";
 import type { Job } from "bullmq";
@@ -13,6 +13,7 @@ export class ReportQueueService {
       RedisClient.getInstance().duplicate(),
       {
         "generate-report": this.generateReportJob.bind(this),
+        "send-reviewed-report": this.sendReviewedReportJob.bind(this),
       },
     );
   }
@@ -29,6 +30,14 @@ export class ReportQueueService {
       await ReportsUtil.processScheduledReportJob(data);
     } catch (err) {
       // console.error(`Failed report job (ID: ${job.id}) on attempt ${job.attemptsMade + 1}:`, err);
+      throw err;
+    }
+  }
+
+  private async sendReviewedReportJob(data: ReportJobData): Promise<void> {
+    try {
+      await PubSubWrapper.publishMessage("notification-send-report", data);
+    } catch (err) {
       throw err;
     }
   }
@@ -51,6 +60,22 @@ export class ReportQueueService {
         type: "exponential",
         delay: 20_000,
       },
+    });
+  }
+
+  public async scheduleOneTimeReport(
+    jobData: any,
+    delayMs: number,
+  ): Promise<Job> {
+    return await this.queue.addJob("send-reviewed-report", jobData, {
+      delay: delayMs,
+      attempts: 3,
+      backoff: {
+        type: "exponential",
+        delay: 10000,
+      },
+      removeOnComplete: true,
+      removeOnFail: false,
     });
   }
 
