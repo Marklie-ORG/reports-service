@@ -1,4 +1,4 @@
-import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
+import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces";
 
 export class CronUtil {
   private static mapDayOfWeekToCron(day: string): string {

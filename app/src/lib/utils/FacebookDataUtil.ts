@@ -1,4 +1,3 @@
-import { FacebookApi } from "../apis/FacebookApi.js";
 import {
   type Ad,
   AVAILABLE_ADS_METRICS,
@@ -8,9 +7,9 @@ import {
   type Campaign,
   type Graph,
   type KPIs,
-  type ReportData,
   type SchedulingOptionMetrics,
-} from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
+} from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
+import { FacebookApi } from "../apis/FacebookApi.js";
 
 export class FacebookDataUtil {
   private static resolveMetricsFromMap(
@@ -37,7 +36,7 @@ export class FacebookDataUtil {
     accountId: string,
     datePreset: string,
     metrics: SchedulingOptionMetrics,
-  ): Promise<ReportData> {
+  ) {
     const api = await FacebookApi.create(organizationUuid, accountId);
     const fetches: Record<string, Promise<any[]>> = {};
 
@@ -150,7 +149,7 @@ export class FacebookDataUtil {
 
     return {
       ads,
-      KPIs,
+      kpis: KPIs,
       campaigns,
       graphs,
     };

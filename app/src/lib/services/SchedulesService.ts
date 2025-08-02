@@ -1,9 +1,5 @@
 import { ReportsUtil } from "../utils/ReportsUtil.js";
 import {
-  AVAILABLE_ADS_METRICS,
-  AVAILABLE_CAMPAIGN_METRICS,
-  AVAILABLE_GRAPH_METRICS,
-  AVAILABLE_KPI_METRICS,
   Database,
   GCSWrapper,
   Log,
@@ -12,18 +8,22 @@ import {
   Report,
   ScheduledJob,
   SchedulingOption,
-  type SchedulingOptionWithImages,
 } from "marklie-ts-core";
 import { ReportQueueService } from "./ReportsQueueService.js";
-import type {
-  ReportJobData,
-  ReportScheduleRequest,
-  SchedulingOptionMetrics,
-  SchedulingOptionWithExtras,
-} from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
+import type { ReportJobData } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { Temporal } from "@js-temporal/polyfill";
 import { CronUtil } from "../utils/CronUtil.js";
 import { FacebookApi } from "../apis/FacebookApi.js";
+import {
+  AVAILABLE_ADS_METRICS,
+  AVAILABLE_CAMPAIGN_METRICS,
+  AVAILABLE_GRAPH_METRICS,
+  AVAILABLE_KPI_METRICS,
+  type ReportScheduleRequest,
+  type SchedulingOptionMetrics,
+  type SchedulingOptionWithExtras,
+  type SchedulingOptionWithImages,
+} from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 const database = await Database.getInstance();
 const logger = Log.getInstance().extend("reports-service");
@@ -304,8 +304,11 @@ export class SchedulesService {
     client: OrganizationClient,
     scheduleUuid: string,
   ): ReportJobData {
+    const { providers, ...rest } = option;
+
     return {
-      ...option,
+      ...rest,
+      data: providers!,
       scheduleUuid,
       organizationUuid: client.organization.uuid,
     };

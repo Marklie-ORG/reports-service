@@ -36,8 +36,8 @@ importers:
         specifier: ^9.0.2
         version: 9.0.2
       marklie-ts-core:
-        specifier: 1.4.19
-        version: 1.4.19(@types/node@22.10.10)(pg@8.16.0)
+        specifier: 1.4.23
+        version: 1.4.23(@types/node@22.10.10)(pg@8.16.0)
       puppeteer:
         specifier: ^24.6.1
         version: 24.6.1(typescript@5.7.3)
@@ -634,8 +634,8 @@ packages:
   '@types/range-parser@1.2.4':
     resolution: {integrity: sha512-EEhsLsD6UsDM1yFhAvy0Cjr6VwmpMWqFBCb9w07wVugF7w9nfajxLuVmngTIpgS6svCnm6Vaw+MZhoDCKnOfsw==}
 
-  '@types/request@2.48.12':
-    resolution: {integrity: sha512-G3sY+NpsA9jnwm0ixhAFQSJ3Q9JkpLZpJbI3GMv0mIAT0y3mRabYeINzal5WOChIiaTEGQYlHOKgkaM9EisWHw==}
+  '@types/request@2.48.13':
+    resolution: {integrity: sha512-FGJ6udDNUCjd19pp0Q3iTiDkwhYup7J8hpMW9c4k53NrccQFFWKRho6hvtPPEhnXWKvukfwAlB6DbDz4yhH5Gg==}
 
   '@types/serve-static@1.15.0':
     resolution: {integrity: sha512-z5xyF6uh8CbjAu9760KDKsH2FcDxZ2tFCsA4HIMWE6IkiYMXfVoa+4f9KX+FN0ZLsaMw1WNG2ETLA6N+/YA+cg==}
@@ -1245,8 +1245,8 @@ packages:
     resolution: {integrity: sha512-yDYSgNMraqvnxiEXO4hi88+YZxaHC6QKzb5N84iRCTDeRO7ZALpir/lVmf/uXUhnwUr2O4HU8s/n6x+yNjQkHw==}
     engines: {node: '>= 14.17'}
 
-  form-data@2.5.3:
-    resolution: {integrity: sha512-XHIrMD0NpDrNM/Ckf7XJiBbLl57KEhT3+i3yY+eWm+cqYZJQTZrKo8Y8AWKnuV5GT4scfuUGt9LzNoIx3dU1nQ==}
+  form-data@2.5.5:
+    resolution: {integrity: sha512-jqdObeR2rxZZbPSGL+3VckHMYtu+f9//KXBsVny6JSX/pa38Fy+bGjuG8eW/H6USNQWhLi8Num++cU2yOCNz4A==}
     engines: {node: '>= 0.12'}
 
   form-data@4.0.2:
@@ -1336,8 +1336,8 @@ packages:
     resolution: {integrity: sha512-jhIXaOzy1sb8IyocaruWSn1TjmnBVs8Ayhcy83rmxNJ8q2uWKCAj3CnJY+KpGSXCueAPc0i05kVvVKtP1t9S3g==}
     engines: {node: '>=10'}
 
-  google-auth-library@10.1.0:
-    resolution: {integrity: sha512-GspVjZj1RbyRWpQ9FbAXMKjFGzZwDKnUHi66JJ+tcjcu5/xYAP1pdlWotCuIkMwjfVsxxDvsGZXGLzRt72D0sQ==}
+  google-auth-library@10.2.0:
+    resolution: {integrity: sha512-gy/0hRx8+Ye0HlUm3GrfpR4lbmJQ6bJ7F44DmN7GtMxxzWSojLzx0Bhv/hj7Wlj7a2On0FcT8jrz8Y1c1nxCyg==}
     engines: {node: '>=18'}
 
   google-auth-library@9.15.1:
@@ -1723,8 +1723,8 @@ packages:
     resolution: {integrity: sha512-hXdUTZYIVOt1Ex//jAQi+wTZZpUpwBj/0QsOzqegb3rGMMeJiSEu5xLHnYfBrRV4RH2+OCSOO95Is/7x1WJ4bw==}
     engines: {node: '>=10'}
 
-  marklie-ts-core@1.4.19:
-    resolution: {integrity: sha512-wyetxT7q2j3UK1G1bRKpoPJzUi8HcX5R/UJdZGfdypQov2+8oPLZVCQeXiB+hRknSwFARVVfJ5tuJ6TuO5HiaQ==}
+  marklie-ts-core@1.4.23:
+    resolution: {integrity: sha512-exZm/IJwHCvOc9LyM6N7TEhSY/SLCPHj8qr8KnBL+l3p+hPn8YSQFvtXL1+1ihOTvgSL/OF+hgIcxdRazYzEug==}
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -3094,12 +3094,12 @@ snapshots:
 
   '@types/range-parser@1.2.4': {}
 
-  '@types/request@2.48.12':
+  '@types/request@2.48.13':
     dependencies:
       '@types/caseless': 0.12.5
       '@types/node': 22.10.10
       '@types/tough-cookie': 4.0.5
-      form-data: 2.5.3
+      form-data: 2.5.5
 
   '@types/serve-static@1.15.0':
     dependencies:
@@ -3702,11 +3702,12 @@ snapshots:
 
   form-data-encoder@2.1.4: {}
 
-  form-data@2.5.3:
+  form-data@2.5.5:
     dependencies:
       asynckit: 0.4.0
       combined-stream: 1.0.8
       es-set-tostringtag: 2.1.0
+      hasown: 2.0.2
       mime-types: 2.1.35
       safe-buffer: 5.2.1
 
@@ -3838,7 +3839,7 @@ snapshots:
       merge2: 1.4.1
       slash: 3.0.0
 
-  google-auth-library@10.1.0:
+  google-auth-library@10.2.0:
     dependencies:
       base64-js: 1.5.1
       ecdsa-sig-formatter: 1.0.11
@@ -3886,7 +3887,7 @@ snapshots:
       '@grpc/proto-loader': 0.7.15
       abort-controller: 3.0.0
       duplexify: 4.1.3
-      google-auth-library: 10.1.0
+      google-auth-library: 10.2.0
       google-logging-utils: 1.1.1
       node-fetch: 3.3.2
       object-hash: 3.0.0
@@ -4292,7 +4293,7 @@ snapshots:
     dependencies:
       semver: 7.7.1
 
-  marklie-ts-core@1.4.19(@types/node@22.10.10)(pg@8.16.0):
+  marklie-ts-core@1.4.23(@types/node@22.10.10)(pg@8.16.0):
     dependencies:
       '@google-cloud/pubsub': 4.11.0
       '@google-cloud/secret-manager': 6.1.0
@@ -4716,7 +4717,7 @@ snapshots:
 
   retry-request@7.0.2:
     dependencies:
-      '@types/request': 2.48.12
+      '@types/request': 2.48.13
       extend: 3.0.2
       teeny-request: 9.0.0
     transitivePeerDependencies:
@@ -4725,7 +4726,7 @@ snapshots:
 
   retry-request@8.0.0:
     dependencies:
-      '@types/request': 2.48.12
+      '@types/request': 2.48.13
       extend: 3.0.2
       teeny-request: 10.1.0
     transitivePeerDependencies:
