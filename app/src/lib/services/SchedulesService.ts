@@ -421,25 +421,30 @@ export class SchedulesService {
     const customMetricsByAdAccount =
       await api.getCustomMetricsForAdAccounts(adAccountIds);
 
-    const result: Record<
-      string,
-      {
+    const result: {
+      adAccountId: string;
+      adAccountName: string;
+      adAccountMetrics: {
         kpis: string[];
         graphs: string[];
         ads: string[];
         campaigns: string[];
         customMetrics: { id: string; name: string }[];
       }
-    > = {};
+    }[] = [];
 
     for (const adAccountId of adAccountIds) {
-      result[adAccountId] = {
-        kpis: Object.keys(AVAILABLE_KPI_METRICS),
-        graphs: Object.keys(AVAILABLE_GRAPH_METRICS),
-        ads: Object.keys(AVAILABLE_ADS_METRICS),
-        campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS),
-        customMetrics: customMetricsByAdAccount[adAccountId] ?? [],
-      };
+      result.push({
+        adAccountId,
+        adAccountName: client.adAccounts?.getItems().find((acc) => acc.adAccountId === adAccountId)?.adAccountName ?? "",
+        adAccountMetrics: {
+          kpis: Object.keys(AVAILABLE_KPI_METRICS),
+          graphs: Object.keys(AVAILABLE_GRAPH_METRICS),
+          ads: Object.keys(AVAILABLE_ADS_METRICS),
+          campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS),
+          customMetrics: customMetricsByAdAccount[adAccountId] ?? [],
+        }
+      })
     }
 
     return result;

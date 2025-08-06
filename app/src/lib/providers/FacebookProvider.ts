@@ -1,7 +1,7 @@
 import { FacebookApi } from "../apis/FacebookApi.js";
 import type { RuntimeAdAccountData } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import type { AdsProvider } from "./AdsProvider.js";
-import { type ScheduledAdAccountConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
+import { type ScheduledAdAccountConfig, type SchedulingOptionMetrics } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 import { ClientAdAccount, Database, Log } from "marklie-ts-core";
 import { FacebookDataUtil } from "../utils/FacebookDataUtil.js";
 
@@ -41,7 +41,7 @@ export class FacebookProvider implements AdsProvider {
         organizationUuid,
         linked.adAccountId,
         datePreset,
-        config,
+        config as SchedulingOptionMetrics,
       );
 
       results.push({
