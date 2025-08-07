@@ -1,9 +1,5 @@
 import { ReportsUtil } from "../utils/ReportsUtil.js";
 import {
-  AVAILABLE_ADS_METRICS,
-  AVAILABLE_CAMPAIGN_METRICS,
-  AVAILABLE_GRAPH_METRICS,
-  AVAILABLE_KPI_METRICS,
   Database,
   GCSWrapper,
   Log,
@@ -12,18 +8,22 @@ import {
   Report,
   ScheduledJob,
   SchedulingOption,
-  type SchedulingOptionWithImages,
 } from "marklie-ts-core";
 import { ReportQueueService } from "./ReportsQueueService.js";
-import type {
-  ReportJobData,
-  ReportScheduleRequest,
-  SchedulingOptionMetrics,
-  SchedulingOptionWithExtras,
-} from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
+import type { ReportJobData } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { Temporal } from "@js-temporal/polyfill";
 import { CronUtil } from "../utils/CronUtil.js";
 import { FacebookApi } from "../apis/FacebookApi.js";
+import {
+  AVAILABLE_ADS_METRICS,
+  AVAILABLE_CAMPAIGN_METRICS,
+  AVAILABLE_GRAPH_METRICS,
+  AVAILABLE_KPI_METRICS,
+  type ReportScheduleRequest,
+  type SchedulingOptionMetrics,
+  type SchedulingOptionWithExtras,
+  type SchedulingOptionWithImages,
+} from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 const database = await Database.getInstance();
 const logger = Log.getInstance().extend("reports-service");
@@ -304,8 +304,11 @@ export class SchedulesService {
     client: OrganizationClient,
     scheduleUuid: string,
   ): ReportJobData {
+    const { providers, ...rest } = option;
+
     return {
-      ...option,
+      ...rest,
+      data: providers!,
       scheduleUuid,
       organizationUuid: client.organization.uuid,
     };
@@ -418,25 +421,34 @@ export class SchedulesService {
     const customMetricsByAdAccount =
       await api.getCustomMetricsForAdAccounts(adAccountIds);
 
-    const result: Record<
-      string,
-      {
+    const result: {
+      adAccountId: string;
+      adAccountName: string;
+      adAccountMetrics: {
         kpis: string[];
         graphs: string[];
         ads: string[];
         campaigns: string[];
         customMetrics: { id: string; name: string }[];
-      }
-    > = {};
+      };
+    }[] = [];
 
     for (const adAccountId of adAccountIds) {
-      result[adAccountId] = {
-        kpis: Object.keys(AVAILABLE_KPI_METRICS),
-        graphs: Object.keys(AVAILABLE_GRAPH_METRICS),
-        ads: Object.keys(AVAILABLE_ADS_METRICS),
-        campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS),
-        customMetrics: customMetricsByAdAccount[adAccountId] ?? [],
-      };
+      result.push({
+        adAccountId,
+        adAccountName:
+          client.adAccounts
+            ?.getItems()
+            .find((acc) => acc.adAccountId === adAccountId)?.adAccountName ??
+          "",
+        adAccountMetrics: {
+          kpis: Object.keys(AVAILABLE_KPI_METRICS),
+          graphs: Object.keys(AVAILABLE_GRAPH_METRICS),
+          ads: Object.keys(AVAILABLE_ADS_METRICS),
+          campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS),
+          customMetrics: customMetricsByAdAccount[adAccountId] ?? [],
+        },
+      });
     }
 
     return result;

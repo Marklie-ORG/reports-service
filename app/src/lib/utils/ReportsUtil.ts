@@ -1,6 +1,5 @@
 import {
   ActivityLog,
-  ClientFacebookAdAccount,
   Database,
   GCSWrapper,
   Log,
@@ -11,13 +10,14 @@ import {
 } from "marklie-ts-core";
 import puppeteer from "puppeteer";
 import type {
+  ProvidersData,
   ReportJobData,
-  ReportScheduleRequest,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { AxiosError } from "axios";
-import { FacebookDataUtil } from "./FacebookDataUtil.js";
 import { Temporal } from "@js-temporal/polyfill";
 import { ReportsConfigService } from "../config/config.js";
+import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
+import { ProviderFactory } from "../providers/ProviderFactory.js";
 
 const logger: Log = Log.getInstance().extend("reports-util");
 const database = await Database.getInstance();
@@ -33,16 +33,11 @@ export class ReportsUtil {
       const client = await this.getClient(data.clientUuid);
       if (!client) return { success: false };
 
-      const adAccountReports = await this.generateAdAccountReports(
-        data,
-        client.uuid,
+      const providersData = mergeMetricsWithValues(
+        await this.generateProvidersReports(data),
       );
 
-      const report = await this.saveReportEntity(
-        data,
-        client,
-        adAccountReports,
-      );
+      const report = await this.saveReportEntity(data, client, providersData);
       await this.updateLastRun(data.scheduleUuid);
 
       if (!data.reviewRequired) {
@@ -64,6 +59,42 @@ export class ReportsUtil {
     }
   }
 
+  private static async generateProvidersReports(
+    data: ReportJobData,
+  ): Promise<ProvidersData[]> {
+    const providersData: ProvidersData[] = [];
+
+    console.log(data.data);
+    for (const providerConfig of data.data) {
+      try {
+        const provider = ProviderFactory.create(
+          providerConfig.provider,
+          data.organizationUuid,
+        );
+        await provider.authenticate(data.organizationUuid);
+
+        const result = await provider.getProviderData(
+          providerConfig.sections,
+          data.clientUuid,
+          data.organizationUuid,
+          data.datePreset,
+        );
+
+        providersData.push({
+          name: providerConfig.provider,
+          sections: result,
+        });
+      } catch (error) {
+        logger.error(
+          `Error processing ${providerConfig.provider} data:`,
+          error,
+        );
+      }
+    }
+
+    return providersData;
+  }
+
   private static async getClient(
     clientUuid: string,
   ): Promise<OrganizationClient | null> {
@@ -80,57 +111,56 @@ export class ReportsUtil {
     return client;
   }
 
-  private static async generateAdAccountReports(
-    data: ReportJobData,
-    clientUuid: string,
-  ): Promise<any[]> {
-    const adAccounts = await database.em.find(ClientFacebookAdAccount, {
-      client: clientUuid,
-    });
-
-    const reportPromises = adAccounts
-      .map((adAccount) => {
-        const metrics = data.adAccountMetrics.find(
-          (m) => m.adAccountId === adAccount.adAccountId,
-        );
-
-        if (!metrics) return null;
-
-        return FacebookDataUtil.getAllReportData(
-          data.organizationUuid,
-          adAccount.adAccountId,
-          data.datePreset,
-          metrics,
-        ).then((reportData) => ({
-          adAccountId: adAccount.adAccountId,
-          ...reportData,
-        }));
-      })
-      .filter(Boolean);
-
-    const adAccountReports = await Promise.all(reportPromises);
-
-    logger.info("Fetched all report data.");
-    return adAccountReports;
-  }
+  // private static async generateAdAccountReports(
+  //   data: ReportJobData,
+  //   clientUuid: string,
+  // ): Promise<any[]> {
+  //   const adAccounts = await database.em.find(ClientFacebookAdAccount, {
+  //     client: clientUuid,
+  //   });
+  //
+  //   const reportPromises = adAccounts
+  //     .map((adAccount) => {
+  //       const metrics = data.adAccountMetrics.find(
+  //         (m) => m.adAccountId === adAccount.adAccountId,
+  //       );
+  //
+  //       if (!metrics) return null;
+  //
+  //       return FacebookDataUtil.getAllReportData(
+  //         data.organizationUuid,
+  //         adAccount.adAccountId,
+  //         data.datePreset,
+  //         metrics,
+  //       ).then((reportData) => ({
+  //         adAccountId: adAccount.adAccountId,
+  //         ...reportData,
+  //       }));
+  //     })
+  //     .filter(Boolean);
+  //
+  //   const adAccountReports = await Promise.all(reportPromises);
+  //
+  //   logger.info("Fetched all report data.");
+  //   return adAccountReports;
+  // }
 
   private static async saveReportEntity(
     data: ReportJobData,
     client: OrganizationClient,
-    adAccountReports: any[],
+    generatedReportData: ProvidersData[],
   ): Promise<Report> {
     const report = database.em.create(Report, {
       organization: client.organization,
-      client: client,
+      client,
       reportType: "facebook",
       reviewRequired: data.reviewRequired,
       gcsUrl: "",
       schedulingOption: data.scheduleUuid,
-      data: adAccountReports,
+      data: generatedReportData,
       metadata: {
         timeZone: data.timeZone,
         datePreset: data.datePreset,
-        adAccountMetrics: data.adAccountMetrics,
         loomLink: "",
         aiGeneratedContent: "",
         userReportDescription: "",
@@ -283,77 +313,87 @@ export class ReportsUtil {
   }
 
   public static getNextRunDate(
-    scheduleOption: ReportScheduleRequest,
+    schedule: ReportScheduleRequest,
   ): Temporal.ZonedDateTime {
-    const timeZone = scheduleOption.timeZone || "UTC";
+    const timeZone = schedule.timeZone || "UTC";
     const now = Temporal.Now.zonedDateTimeISO(timeZone);
+    const [hour, minute] = schedule.time.split(":").map(Number);
 
-    let nextRun: Temporal.ZonedDateTime;
+    const baseTime = now.with({ hour, minute, second: 0, millisecond: 0 });
 
-    const [hour, minute] = scheduleOption.time.split(":").map(Number);
-
-    switch (scheduleOption.frequency) {
-      case "weekly": {
-        const targetWeekday = this.getWeekday(scheduleOption.dayOfWeek); // 1 = Monday, 7 = Sunday
-
-        nextRun = now.with({ hour, minute, second: 0, millisecond: 0 });
-
-        const daysUntilTarget = (targetWeekday + 7 - now.dayOfWeek) % 7 || 7;
-
-        nextRun = nextRun.add({ days: daysUntilTarget });
-
-        break;
-      }
-
+    switch (schedule.frequency) {
+      case "weekly":
       case "biweekly": {
-        const targetWeekday = this.getWeekday(scheduleOption.dayOfWeek);
+        const weekday = this.getWeekday(schedule.dayOfWeek); // 1 (Monday) to 7 (Sunday)
+        const daysUntil = (weekday + 7 - now.dayOfWeek) % 7 || 7;
+        let next = baseTime.add({ days: daysUntil });
 
-        nextRun = now.with({ hour, minute, second: 0, millisecond: 0 });
-        const daysUntilTarget = (targetWeekday + 7 - now.dayOfWeek) % 7 || 7;
-
-        nextRun = nextRun.add({ days: daysUntilTarget });
-
-        if (Temporal.ZonedDateTime.compare(nextRun, now) <= 0) {
-          nextRun = nextRun.add({ days: 14 });
+        if (
+          schedule.frequency === "biweekly" &&
+          Temporal.ZonedDateTime.compare(next, now) <= 0
+        ) {
+          next = next.add({ days: 14 });
         }
 
-        break;
+        return next;
       }
 
       case "monthly": {
-        const day = scheduleOption.dayOfMonth;
-        const proposed = now.with({
-          day,
-          hour,
-          minute,
-          second: 0,
-          millisecond: 0,
-        });
+        const day = schedule.dayOfMonth || 1;
+        const proposed = baseTime.with({ day });
 
-        nextRun =
-          Temporal.ZonedDateTime.compare(proposed, now) < 0
-            ? proposed.add({ months: 1 })
-            : proposed;
-
-        break;
+        return Temporal.ZonedDateTime.compare(proposed, now) < 0
+          ? proposed.add({ months: 1 })
+          : proposed;
       }
 
       case "custom": {
-        const interval = scheduleOption.intervalDays ?? 1;
-        const custom = now.with({ hour, minute, second: 0, millisecond: 0 });
-
-        nextRun =
-          Temporal.ZonedDateTime.compare(custom, now) <= 0
-            ? now.add({ days: interval })
-            : custom.add({ days: interval });
-
-        break;
+        const interval = schedule.intervalDays ?? 1;
+        return Temporal.ZonedDateTime.compare(baseTime, now) <= 0
+          ? now
+              .add({ days: interval })
+              .with({ hour, minute, second: 0, millisecond: 0 })
+          : baseTime.add({ days: interval });
       }
 
       default:
-        nextRun = now;
+        return baseTime; // fallback (e.g., for cron or undefined frequencies)
     }
-
-    return nextRun;
   }
+}
+function mergeMetricsWithValues(input: any[]) {
+  return input.map((provider) => ({
+    ...provider,
+    sections: provider.sections.map((section: { adAccounts: any[] }) => ({
+      ...section,
+      adAccounts: section.adAccounts.map((account) => {
+        const mergedMetrics = [
+          ...(account.metrics || []),
+          ...(account.customMetrics || []).map(
+            (cm: { name: any; order: any; value: any }) => ({
+              name: cm.name,
+              order: cm.order,
+              value: cm.value ?? 0, // default to 0 if value not set
+            }),
+          ),
+        ];
+
+        // If `value` is missing on standard metric, set it to 0
+        for (const metric of mergedMetrics) {
+          if (typeof metric.value === "undefined") {
+            metric.value = 0;
+          }
+        }
+
+        mergedMetrics.sort((a, b) => a.order - b.order);
+
+        return {
+          adAccountId: account.adAccountId,
+          adAccountName: account.adAccountName,
+          order: account.order,
+          metrics: mergedMetrics,
+        };
+      }),
+    })),
+  }));
 }

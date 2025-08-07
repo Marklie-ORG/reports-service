@@ -55,7 +55,10 @@ export class FacebookApi {
       throw new Error(
         `No token found for organizationUuid ${organizationUuid}`,
       );
-    return new FacebookApi(tokenRecord.token, accountId ?? "");
+    return new FacebookApi(
+      "EAASERizF7PoBO9DxAMbCWwZAJ4htpGSdj6kmRbdKBLLEiPrZC8bOtoXyoBiwNhq3POHk2rEVXRviwRE2gWYzFSVwvQMi2vZAZCB8bmvQbkZCEvyNWD2KpHcNoMEpWtvTo6NfZAG7IKivZA3ZCMzrxapNGQ4RHmQ6s4a333bEjZCZATlmEBzUQ05KMcJRHaEXGa",
+      accountId ?? "",
+    );
   }
 
   private setupInterceptors() {
@@ -633,9 +636,10 @@ export class FacebookApi {
             result[adAccountId] = details;
           }
         } catch (err) {
-          console.warn(
-            `Error fetching custom conversions for ${adAccountId}`,
-            err,
+          throw MarklieError.externalApi(
+            "FacebookApi",
+            err as Error,
+            `Error fetching custom metrics for ${adAccountId}`,
           );
         }
       }),
