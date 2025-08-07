@@ -430,21 +430,25 @@ export class SchedulesService {
         ads: string[];
         campaigns: string[];
         customMetrics: { id: string; name: string }[];
-      }
+      };
     }[] = [];
 
     for (const adAccountId of adAccountIds) {
       result.push({
         adAccountId,
-        adAccountName: client.adAccounts?.getItems().find((acc) => acc.adAccountId === adAccountId)?.adAccountName ?? "",
+        adAccountName:
+          client.adAccounts
+            ?.getItems()
+            .find((acc) => acc.adAccountId === adAccountId)?.adAccountName ??
+          "",
         adAccountMetrics: {
           kpis: Object.keys(AVAILABLE_KPI_METRICS),
           graphs: Object.keys(AVAILABLE_GRAPH_METRICS),
           ads: Object.keys(AVAILABLE_ADS_METRICS),
           campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS),
           customMetrics: customMetricsByAdAccount[adAccountId] ?? [],
-        }
-      })
+        },
+      });
     }
 
     return result;

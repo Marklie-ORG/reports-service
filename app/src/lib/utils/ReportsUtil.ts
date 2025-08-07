@@ -1,6 +1,5 @@
 import {
   ActivityLog,
-  ClientAdAccount,
   Database,
   GCSWrapper,
   Log,
@@ -17,8 +16,8 @@ import type {
 import { AxiosError } from "axios";
 import { Temporal } from "@js-temporal/polyfill";
 import { ReportsConfigService } from "../config/config.js";
-import { ProviderFactory } from "../providers/ProviderFactory.js";
 import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
+import { ProviderFactory } from "../providers/ProviderFactory.js";
 
 const logger: Log = Log.getInstance().extend("reports-util");
 const database = await Database.getInstance();
@@ -29,20 +28,16 @@ export class ReportsUtil {
     data: ReportJobData,
   ): Promise<{ success: boolean }> {
     try {
+      logger.info(`Generating report for Client UUID: ${data.clientUuid}`);
+
       const client = await this.getClient(data.clientUuid);
       if (!client) return { success: false };
 
-      const generatedReportData = await this.generateProviderData(
-        data,
-        client.uuid,
+      const providersData = mergeMetricsWithValues(
+        await this.generateProvidersReports(data),
       );
 
-      const report = await this.saveReportEntity(
-        data,
-        client,
-        generatedReportData,
-      );
-
+      const report = await this.saveReportEntity(data, client, providersData);
       await this.updateLastRun(data.scheduleUuid);
 
       if (!data.reviewRequired) {
@@ -64,59 +59,40 @@ export class ReportsUtil {
     }
   }
 
-  private static async generateProviderData(
+  private static async generateProvidersReports(
     data: ReportJobData,
-    clientUuid: string,
   ): Promise<ProvidersData[]> {
-    const adAccounts = await database.em.find(ClientAdAccount, {
-      client: clientUuid,
-    });
+    const providersData: ProvidersData[] = [];
 
-    const accountsByProvider = new Map<string, ClientAdAccount[]>();
-    for (const account of adAccounts) {
-      const provider = account.provider || "facebook";
-      if (!accountsByProvider.has(provider)) {
-        accountsByProvider.set(provider, []);
+    console.log(data.data);
+    for (const providerConfig of data.data) {
+      try {
+        const provider = ProviderFactory.create(
+          providerConfig.provider,
+          data.organizationUuid,
+        );
+        await provider.authenticate(data.organizationUuid);
+
+        const result = await provider.getProviderData(
+          providerConfig.sections,
+          data.clientUuid,
+          data.organizationUuid,
+          data.datePreset,
+        );
+
+        providersData.push({
+          name: providerConfig.provider,
+          sections: result,
+        });
+      } catch (error) {
+        logger.error(
+          `Error processing ${providerConfig.provider} data:`,
+          error,
+        );
       }
-      accountsByProvider.get(provider)!.push(account);
     }
 
-    const providers: ProvidersData[] = [];
-
-    for (const [providerName, accounts] of accountsByProvider.entries()) {
-      logger.info(`Fetching data from ${providerName}`);
-      const provider = ProviderFactory.create(
-        providerName,
-        data.organizationUuid,
-      );
-      await provider.authenticate(data.organizationUuid);
-
-      const scheduledProvider = data.data.find(
-        (p) => p.provider === providerName,
-      );
-      if (!scheduledProvider) continue;
-
-      const matchedAccounts = scheduledProvider.adAccounts.filter(
-        (scheduled: { adAccountId: string }) =>
-          accounts.some((acc) => acc.adAccountId === scheduled.adAccountId),
-      );
-
-      if (!matchedAccounts.length) continue;
-
-      const runtimeAdAccounts = await provider.getProviderData(
-        matchedAccounts,
-        clientUuid,
-        data.organizationUuid,
-        data.datePreset,
-      );
-
-      providers.push({
-        name: providerName as "facebook" | "tiktok" | "google",
-        adAccounts: runtimeAdAccounts,
-      });
-    }
-
-    return providers;
+    return providersData;
   }
 
   private static async getClient(
@@ -384,4 +360,40 @@ export class ReportsUtil {
         return baseTime; // fallback (e.g., for cron or undefined frequencies)
     }
   }
+}
+function mergeMetricsWithValues(input: any[]) {
+  return input.map((provider) => ({
+    ...provider,
+    sections: provider.sections.map((section: { adAccounts: any[] }) => ({
+      ...section,
+      adAccounts: section.adAccounts.map((account) => {
+        const mergedMetrics = [
+          ...(account.metrics || []),
+          ...(account.customMetrics || []).map(
+            (cm: { name: any; order: any; value: any }) => ({
+              name: cm.name,
+              order: cm.order,
+              value: cm.value ?? 0, // default to 0 if value not set
+            }),
+          ),
+        ];
+
+        // If `value` is missing on standard metric, set it to 0
+        for (const metric of mergedMetrics) {
+          if (typeof metric.value === "undefined") {
+            metric.value = 0;
+          }
+        }
+
+        mergedMetrics.sort((a, b) => a.order - b.order);
+
+        return {
+          adAccountId: account.adAccountId,
+          adAccountName: account.adAccountName,
+          order: account.order,
+          metrics: mergedMetrics,
+        };
+      }),
+    })),
+  }));
 }
