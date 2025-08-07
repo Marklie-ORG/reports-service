@@ -64,7 +64,6 @@ export class ReportsUtil {
   ): Promise<ProvidersData[]> {
     const providersData: ProvidersData[] = [];
 
-    console.log(data.data);
     for (const providerConfig of data.data) {
       try {
         const provider = ProviderFactory.create(
@@ -357,7 +356,7 @@ export class ReportsUtil {
       }
 
       default:
-        return baseTime; // fallback (e.g., for cron or undefined frequencies)
+        return baseTime;
     }
   }
 }
@@ -373,12 +372,11 @@ function mergeMetricsWithValues(input: any[]) {
             (cm: { name: any; order: any; value: any }) => ({
               name: cm.name,
               order: cm.order,
-              value: cm.value ?? 0, // default to 0 if value not set
+              value: cm.value ?? 0,
             }),
           ),
         ];
 
-        // If `value` is missing on standard metric, set it to 0
         for (const metric of mergedMetrics) {
           if (typeof metric.value === "undefined") {
             metric.value = 0;
