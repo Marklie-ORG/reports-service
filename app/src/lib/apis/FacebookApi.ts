@@ -55,10 +55,7 @@ export class FacebookApi {
       throw new Error(
         `No token found for organizationUuid ${organizationUuid}`,
       );
-    return new FacebookApi(
-      "EAASERizF7PoBO9DxAMbCWwZAJ4htpGSdj6kmRbdKBLLEiPrZC8bOtoXyoBiwNhq3POHk2rEVXRviwRE2gWYzFSVwvQMi2vZAZCB8bmvQbkZCEvyNWD2KpHcNoMEpWtvTo6NfZAG7IKivZA3ZCMzrxapNGQ4RHmQ6s4a333bEjZCZATlmEBzUQ05KMcJRHaEXGa",
-      accountId ?? "",
-    );
+    return new FacebookApi(tokenRecord.token, accountId ?? "");
   }
 
   private setupInterceptors() {
