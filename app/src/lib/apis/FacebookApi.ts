@@ -636,9 +636,10 @@ export class FacebookApi {
             result[adAccountId] = details;
           }
         } catch (err) {
-          console.warn(
-            `Error fetching custom conversions for ${adAccountId}`,
-            err,
+          throw MarklieError.externalApi(
+            "FacebookApi",
+            err as Error,
+            `Error fetching custom metrics for ${adAccountId}`,
           );
         }
       }),

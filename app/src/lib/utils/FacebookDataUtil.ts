@@ -10,6 +10,7 @@ import {
   type SchedulingOptionMetrics,
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 import { FacebookApi } from "../apis/FacebookApi.js";
+import type { CustomMetric } from "marklie-ts-core";
 
 export class FacebookDataUtil {
   private static resolveMetricsFromMap(
@@ -45,11 +46,21 @@ export class FacebookDataUtil {
     const selectedGraphs = metrics.graphs?.metrics?.map((m) => m.name) || [];
     const selectedCampaigns =
       metrics.campaigns?.metrics?.map((m) => m.name) || [];
-    const customMetrics = metrics.customMetrics || [];
+
+    const kpiCustomMetrics = this.getCustomMetricsForSection(metrics, "kpis");
+    // const adsCustomMetrics = this.getCustomMetricsForSection(metrics, "ads");
+    const graphsCustomMetrics = this.getCustomMetricsForSection(
+      metrics,
+      "graphs",
+    );
+    const campaignsCustomMetrics = this.getCustomMetricsForSection(
+      metrics,
+      "campaigns",
+    );
 
     const kpiFields = [
       ...this.resolveMetricsFromMap(selectedKpis, AVAILABLE_KPI_METRICS),
-      ...(customMetrics.length ? ["actions"] : []),
+      ...(kpiCustomMetrics.length ? ["actions"] : []),
     ];
 
     const adsFields = this.resolveMetricsFromMap(
@@ -63,7 +74,7 @@ export class FacebookDataUtil {
 
         AVAILABLE_GRAPH_METRICS,
       ),
-      ...(customMetrics.length ? ["actions"] : []),
+      ...(graphsCustomMetrics.length ? ["actions"] : []),
     ];
 
     const campaignFields = [
@@ -71,10 +82,10 @@ export class FacebookDataUtil {
         [...selectedCampaigns, "campaign_id", "campaign_name"],
         AVAILABLE_CAMPAIGN_METRICS,
       ),
-      ...(customMetrics.length ? ["actions"] : []),
+      ...(campaignsCustomMetrics.length ? ["actions"] : []),
     ];
 
-    if (selectedKpis.length || customMetrics.length) {
+    if (selectedKpis.length || campaignsCustomMetrics.length) {
       fetches.campaignDataForKPIs = api.getInsightsSmart(
         "campaign",
         kpiFields,
@@ -89,7 +100,7 @@ export class FacebookDataUtil {
       fetches.ads = api.getAdInsightsWithThumbnails(adsFields, datePreset);
     }
 
-    if (selectedGraphs.length || customMetrics.length) {
+    if (selectedGraphs.length || graphsCustomMetrics.length) {
       fetches.campaignDataForGraphs = api.getInsightsSmart(
         "campaign",
         graphFields,
@@ -127,7 +138,7 @@ export class FacebookDataUtil {
       ? this.aggregateCampaignDataToKPIs(
           result.campaignDataForKPIs,
           selectedKpis,
-          customMetrics,
+          kpiCustomMetrics,
         )
       : null;
 
@@ -135,7 +146,7 @@ export class FacebookDataUtil {
       ? this.aggregateCampaignDataToGraphs(
           result.campaignDataForGraphs,
           selectedGraphs,
-          customMetrics,
+          graphsCustomMetrics,
         )
       : [];
 
@@ -143,7 +154,7 @@ export class FacebookDataUtil {
       ? this.normalizeCampaigns(
           result.campaigns,
           selectedCampaigns,
-          customMetrics,
+          campaignsCustomMetrics,
         )
       : [];
 
@@ -153,6 +164,13 @@ export class FacebookDataUtil {
       campaigns,
       graphs,
     };
+  }
+
+  private static getCustomMetricsForSection(
+    metrics: SchedulingOptionMetrics,
+    section: "kpis" | "ads" | "graphs" | "campaigns",
+  ): CustomMetric[] {
+    return metrics[section]?.customMetrics || [];
   }
 
   private static aggregateCampaignDataToKPIs(
