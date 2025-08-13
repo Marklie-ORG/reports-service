@@ -12,6 +12,7 @@ import puppeteer from "puppeteer";
 import type {
   ProvidersData,
   ReportJobData,
+  RuntimeAdAccountData,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { AxiosError } from "axios";
 import { Temporal } from "@js-temporal/polyfill";
@@ -33,9 +34,23 @@ export class ReportsUtil {
       const client = await this.getClient(data.clientUuid);
       if (!client) return { success: false };
 
-      const providersData = mergeMetricsWithValues(
-        await this.generateProvidersReports(data),
-      );
+      // const providersData = await this.generateProvidersReports(data);
+      // console.log("providersData");
+      // console.log(JSON.stringify(providersData, null, 2));
+
+      // return { success: true };
+
+      const providersData = await this.generateProvidersReports(data);
+
+      console.log("providersData");
+      console.log(JSON.stringify(providersData, null, 2));
+
+      // const providersData = mergeMetricsWithValues(
+      //   providersDataReports
+      // );
+
+      // console.log("providersData");
+      // console.log(JSON.stringify(providersData, null, 2));
 
       const report = await this.saveReportEntity(data, client, providersData);
       await this.updateLastRun(data.scheduleUuid);
@@ -64,8 +79,8 @@ export class ReportsUtil {
   ): Promise<ProvidersData[]> {
     const providersData: ProvidersData[] = [];
 
-    console.log(data.data);
-    for (const providerConfig of data.data) {
+    console.log(data.providers);
+    for (const providerConfig of data.providers) {
       try {
         const provider = ProviderFactory.create(
           providerConfig.provider,
@@ -73,7 +88,7 @@ export class ReportsUtil {
         );
         await provider.authenticate(data.organizationUuid);
 
-        const result = await provider.getProviderData(
+        const sections: RuntimeAdAccountData[] = await provider.getProviderData(
           providerConfig.sections,
           data.clientUuid,
           data.organizationUuid,
@@ -82,7 +97,7 @@ export class ReportsUtil {
 
         providersData.push({
           name: providerConfig.provider,
-          sections: result,
+          sections: sections,
         });
       } catch (error) {
         logger.error(
@@ -361,7 +376,7 @@ export class ReportsUtil {
     }
   }
 }
-function mergeMetricsWithValues(input: any[]) {
+function mergeMetricsWithValues(input: any[]): ProvidersData[] {
   return input.map((provider) => ({
     ...provider,
     sections: provider.sections.map((section: { adAccounts: any[] }) => ({
