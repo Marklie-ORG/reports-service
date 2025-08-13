@@ -173,7 +173,7 @@ export class SchedulesService {
         ...schedulingOption,
         images: {
           clientLogo: "",
-          agencyLogo: "",
+          organizationLogo: "",
         },
       } as unknown as SchedulingOptionWithImages;
     }
@@ -181,15 +181,15 @@ export class SchedulesService {
     const clientLogo = schedulingOption.jobData.images.clientLogo
       ? await gcs.getSignedUrl(schedulingOption.jobData.images.clientLogo)
       : "";
-    const agencyLogo = schedulingOption.jobData.images.agencyLogo
-      ? await gcs.getSignedUrl(schedulingOption.jobData.images.agencyLogo)
+    const organizationLogo = schedulingOption.jobData.images.organizationLogo
+      ? await gcs.getSignedUrl(schedulingOption.jobData.images.organizationLogo)
       : "";
 
     return {
       ...schedulingOption,
       images: {
         clientLogo,
-        agencyLogo,
+        organizationLogo,
       },
     } as unknown as SchedulingOptionWithImages;
   }
