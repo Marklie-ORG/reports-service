@@ -32,6 +32,14 @@ export class ReportsService {
     );
   }
 
+  async getClientReports(clientUuid: string): Promise<Report[]> {
+    return database.em.find(
+      Report,
+      { client: clientUuid },
+      { orderBy: { createdAt: 'DESC' }, populate: ["client", "schedulingOption"] },
+    );
+  }
+
   async sendReportAfterReview(uuid: string, sendAt?: string) {
     const report = await database.em.findOne(Report, { uuid });
     if (!report) throw new Error(`Report ${uuid} not found`);

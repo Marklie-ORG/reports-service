@@ -18,6 +18,7 @@ export class ReportsController extends Router {
   private setUpRoutes() {
     this.get("/:uuid", this.getReport.bind(this));
     this.get("/", this.getReports.bind(this));
+    this.get("/client/:uuid", this.getClientReports.bind(this));
     this.post("/send-after-review", this.sendAfterReview.bind(this));
     this.put("/report-images/:uuid", this.updateReportImages.bind(this));
   }
@@ -41,6 +42,12 @@ export class ReportsController extends Router {
     ctx.body = await this.reportsService.getReports(
       user.activeOrganization?.uuid,
     );
+    ctx.status = 200;
+  }
+
+  private async getClientReports(ctx: Context) {
+    const clientUuid = ctx.params.uuid as string;
+    ctx.body = await this.reportsService.getClientReports(clientUuid);
     ctx.status = 200;
   }
 
