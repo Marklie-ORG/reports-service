@@ -308,7 +308,7 @@ export class SchedulesService {
 
     return {
       ...rest,
-      providers: providers ?? [],
+      data: providers ?? [],
       scheduleUuid,
       organizationUuid: client.organization.uuid,
     };

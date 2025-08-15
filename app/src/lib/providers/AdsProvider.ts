@@ -1,17 +1,5 @@
-import type { CustomMetric } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces";
-import type { OrderedMetric } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces";
+import type { SectionConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces";
 
-export interface SectionConfig {
-  name: "kpis" | "graphs" | "ads" | "campaigns";
-  order: number;
-  adAccounts: SectionAdAccount[];
-}
-interface SectionAdAccount {
-  adAccountId: string;
-  order: number;
-  metrics: OrderedMetric<string>[];
-  customMetrics?: CustomMetric[];
-}
 export interface AdsProvider {
   readonly providerName: string;
 

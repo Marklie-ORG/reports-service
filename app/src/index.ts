@@ -8,9 +8,8 @@ import {
   CookiesMiddleware,
   Database,
   ErrorMiddleware,
-  // FACEBOOK_DATE_PRESETS,
+  FACEBOOK_DATE_PRESETS,
   Log,
-  // type ReportJobData,
   ValidationMiddleware,
 } from "marklie-ts-core";
 
@@ -18,10 +17,13 @@ import { ReportQueueService } from "./lib/services/ReportsQueueService.js";
 import { ReportsController } from "./lib/controllers/ReportsController.js";
 import { ReportsConfigService } from "./lib/config/config.js";
 import { SchedulesController } from "./lib/controllers/SchedulesController.js";
+import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces";
+import type { ReportJobData } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
+import { ReportsUtil } from "lib/utils/ReportsUtil.js";
 // import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 const app = new Koa();
-const logger = Log.getInstance().extend("reports-service");
+const logger = Log.getInstance();
 const config = ReportsConfigService.getInstance();
 
 const database = await Database.getInstance();
@@ -72,80 +74,265 @@ process.on("SIGINT", async () => {
   process.exit(0);
 });
 
-// const request: ReportScheduleRequest = {
-//   frequency: "weekly",
-//   time: "09:00",
-//   timeZone: "America/New_York",
-//   dayOfWeek: "Monday",
+const request: ReportScheduleRequest = {
+  time: "13:03",
+  images: {
+    clientLogo: "",
+    organizationLogo: "",
+  },
+  messages: {
+    email: {
+      body: "3",
+      title: "2",
+    },
+    slack: "",
+    whatsapp: "1",
+  },
+  timeZone: "Europe/Kiev",
+  dayOfWeek: "Friday",
+  frequency: "weekly",
+  providers: [
+    {
+      provider: "facebook",
+      sections: [
+        {
+          name: "kpis",
+          order: 0,
+          adAccounts: [
+            {
+              order: 0,
+              metrics: [
+                {
+                  name: "spend",
+                  order: 11,
+                },
+              ],
+              adAccountId: "act_184132280559902",
+              adAccountName: "Welvaere | Belgium",
+              customMetrics: [
+                {
+                  id: "1811736552611626",
+                  name: "Engaged traffic",
+                  order: 8,
+                },
+              ],
+            },
+            {
+              order: 0,
+              metrics: [
+                {
+                  name: "spend",
+                  order: 11,
+                },
+              ],
+              adAccountId: "act_944264010376239",
+              adAccountName: "Welvaere | Europe",
+              customMetrics: [
+                {
+                  id: "462417059508939",
+                  name: "EU | Quote Request",
+                  order: 1,
+                },
+              ],
+            },
+            {
+              order: 0,
+              metrics: [
+                {
+                  name: "spend",
+                  order: 11,
+                },
+              ],
+              adAccountId: "act_571336068315404",
+              adAccountName: "Welvaere | France",
+              customMetrics: [
+                {
+                  id: "703397075058069",
+                  name: "Engaged traffic",
+                  order: 2,
+                },
+              ],
+            },
+          ],
+        },
+        {
+          name: "graphs",
+          order: 1,
+          adAccounts: [
+            {
+              order: 0,
+              metrics: [
+                {
+                  name: "impressions",
+                  order: 0,
+                },
+              ],
+              adAccountId: "act_944264010376239",
+              adAccountName: "Welvaere | Europe",
+              customMetrics: [
+                {
+                  id: "462417059508939",
+                  name: "EU | Quote Request",
+                  order: 1,
+                },
+              ],
+            },
+          ],
+        },
+        {
+          name: "ads",
+          order: 2,
+          adAccounts: [
+            {
+              order: 0,
+              metrics: [
+                {
+                  name: "ad_name",
+                  order: 9,
+                },
+                {
+                  name: "impressions",
+                  order: 0,
+                },
+              ],
+              adAccountId: "act_944264010376239",
+              adAccountName: "Welvaere | Belgium",
+              customMetrics: [
+                {
+                  id: "1811736552611626",
+                  name: "Engaged traffic",
+                  order: 8,
+                },
+              ],
+            },
+            {
+              order: 0,
+              metrics: [
+                {
+                  name: "ad_name",
+                  order: 9,
+                },
+                {
+                  name: "impressions",
+                  order: 0,
+                },
+              ],
+              adAccountId: "act_944264010376239",
+              adAccountName: "Welvaere | Europe",
+              customMetrics: [
+                {
+                  id: "462417059508939",
+                  name: "EU | Quote Request",
+                  order: 1,
+                },
+              ],
+            },
+            {
+              order: 0,
+              metrics: [
+                {
+                  name: "ad_name",
+                  order: 9,
+                },
+                {
+                  name: "impressions",
+                  order: 0,
+                },
+              ],
+              adAccountId: "act_944264010376239",
+              adAccountName: "Welvaere | France",
+              customMetrics: [
+                {
+                  id: "703397075058069",
+                  name: "Engaged traffic",
+                  order: 2,
+                },
+              ],
+            },
+          ],
+        },
+        {
+          name: "campaigns",
+          order: 3,
+          adAccounts: [
+            {
+              order: 0,
+              metrics: [
+                {
+                  name: "add_to_cart",
+                  order: 11,
+                },
+              ],
+              adAccountId: "act_184132280559902",
+              adAccountName: "Welvaere | Belgium",
+              customMetrics: [
+                {
+                  id: "1811736552611626",
+                  name: "Engaged traffic",
+                  order: 8,
+                },
+              ],
+            },
+            {
+              order: 0,
+              metrics: [
+                {
+                  name: "add_to_cart",
+                  order: 11,
+                },
+              ],
+              adAccountId: "act_944264010376239",
+              adAccountName: "Welvaere | Europe",
+              customMetrics: [
+                {
+                  id: "462417059508939",
+                  name: "EU | Quote Request",
+                  order: 1,
+                },
+              ],
+            },
+            {
+              order: 0,
+              metrics: [
+                {
+                  name: "add_to_cart",
+                  order: 11,
+                },
+              ],
+              adAccountId: "act_571336068315404",
+              adAccountName: "Welvaere | France",
+              customMetrics: [
+                {
+                  id: "703397075058069",
+                  name: "Engaged traffic",
+                  order: 2,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+  clientUuid: "c5b300eb-ab4d-4db6-bae7-c81610dd9f5a",
+  datePreset: FACEBOOK_DATE_PRESETS.LAST_7D,
+  reportName: "Report Title",
+  reviewRequired: false,
+  organizationUuid: "2bc96d98-654e-41b0-a13f-22ed452d9f47",
+};
+const { providers, ...rest } = request;
+const jobData: ReportJobData = {
+  ...rest,
+  data: providers!,
+  scheduleUuid: "6a0262b7-457d-452c-8f3a-cc7c235dda5c",
+};
+await reportQueue.deleteAllScheduledJobs();
 
-//   clientUuid: "c5b300eb-ab4d-4db6-bae7-c81610dd9f5a",
-//   organizationUuid: "2bc96d98-654e-41b0-a13f-22ed452d9f47",
-//   reportName: "Weekly Facebook Summary",
-//   reviewRequired: true,
-//   datePreset: FACEBOOK_DATE_PRESETS.LAST_7D, // Assuming from your FACEBOOK_DATE_PRESETS enum
+// const service = new SchedulesService();
+// await service.scheduleReport(request);
 
-//   messages: {
-//     whatsapp: "Here’s your weekly ad performance!",
-//     slack: "Weekly ad report is ready :bar_chart:",
-//     email: {
-//       title: "Weekly Facebook Report",
-//       body: "Attached is your Facebook ad performance for the last 7 days.",
-//     },
-//   },
-
-//   images: {
-//     clientLogo: "https://cdn.example.com/logos/client.png",
-//     organizationLogo: "https://cdn.example.com/logos/org.png",
-//   },
-
-//   providers: [
-//     {
-//       provider: "facebook",
-//       adAccounts: [
-//         {
-//           adAccountId: "act_1083076062681667",
-//           kpis: {
-//             order: 1,
-//             metrics: [
-//               { name: "spend", order: 1 },
-//               { name: "clicks", order: 2 },
-//               { name: "ctr", order: 3 },
-//             ],
-//           },
-//           graphs: {
-//             order: 2,
-//             metrics: [
-//               { name: "impressions", order: 1 },
-//               { name: "reach", order: 2 },
-//             ],
-//           },
-//           ads: {
-//             order: 3,
-//             metrics: [
-//               { name: "ad_name", order: 1 },
-//               { name: "cpc", order: 2 },
-//             ],
-//           },
-//           campaigns: {
-//             order: 4,
-//             metrics: [
-//               { name: "purchases", order: 1 },
-//               { name: "conversion_value", order: 2 },
-//             ],
-//           },
-//         },
-//       ],
-//     },
-//   ],
-// };
-// const { providers, ...rest } = request;
-// const jobData: ReportJobData = {
-//   ...rest,
-//   data: providers!,
-//   scheduleUuid: "6a0262b7-457d-452c-8f3a-cc7c235dda5c",
-// };
 // console.log(jobData.data[0].adAccounts[0].kpis);
 // console.log(jobData.data[0].adAccounts[0].graphs);
 // console.log(jobData.data[0].adAccounts[0].ads);
 // console.log(jobData.data[0].adAccounts[0].campaigns);
-// await ReportsUtil.processScheduledReportJob(jobData);
+await ReportsUtil.processScheduledReportJob(jobData);

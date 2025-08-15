@@ -10,9 +10,8 @@ import {
 } from "marklie-ts-core";
 import puppeteer from "puppeteer";
 import type {
-  ProvidersData,
+  ReportData,
   ReportJobData,
-  RuntimeAdAccountData,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { AxiosError } from "axios";
 import { Temporal } from "@js-temporal/polyfill";
@@ -32,27 +31,13 @@ export class ReportsUtil {
       logger.info(`Generating report for Client UUID: ${data.clientUuid}`);
 
       const client = await this.getClient(data.clientUuid);
+
       if (!client) return { success: false };
-
-      // const providersData = await this.generateProvidersReports(data);
-      // console.log("providersData");
-      // console.log(JSON.stringify(providersData, null, 2));
-
-      // return { success: true };
 
       const providersData = await this.generateProvidersReports(data);
 
-      console.log("providersData");
-      console.log(JSON.stringify(providersData, null, 2));
-
-      // const providersData = mergeMetricsWithValues(
-      //   providersDataReports
-      // );
-
-      // console.log("providersData");
-      // console.log(JSON.stringify(providersData, null, 2));
-
       const report = await this.saveReportEntity(data, client, providersData);
+
       await this.updateLastRun(data.scheduleUuid);
 
       if (!data.reviewRequired) {
@@ -76,11 +61,10 @@ export class ReportsUtil {
 
   private static async generateProvidersReports(
     data: ReportJobData,
-  ): Promise<ProvidersData[]> {
-    const providersData: ProvidersData[] = [];
+  ): Promise<ReportData[]> {
+    const providersData: ReportData[] = [];
 
-    console.log(data.providers);
-    for (const providerConfig of data.providers) {
+    for (const providerConfig of data.data) {
       try {
         const provider = ProviderFactory.create(
           providerConfig.provider,
@@ -88,7 +72,7 @@ export class ReportsUtil {
         );
         await provider.authenticate(data.organizationUuid);
 
-        const sections: RuntimeAdAccountData[] = await provider.getProviderData(
+        const sections = await provider.getProviderData(
           providerConfig.sections,
           data.clientUuid,
           data.organizationUuid,
@@ -96,8 +80,8 @@ export class ReportsUtil {
         );
 
         providersData.push({
-          name: providerConfig.provider,
-          sections: sections,
+          provider: providerConfig.provider,
+          sections,
         });
       } catch (error) {
         logger.error(
@@ -163,7 +147,7 @@ export class ReportsUtil {
   private static async saveReportEntity(
     data: ReportJobData,
     client: OrganizationClient,
-    generatedReportData: ProvidersData[],
+    generatedReportData: ReportData[],
   ): Promise<Report> {
     const report = database.em.create(Report, {
       organization: client.organization,
@@ -372,43 +356,7 @@ export class ReportsUtil {
       }
 
       default:
-        return baseTime; // fallback (e.g., for cron or undefined frequencies)
+        return baseTime;
     }
   }
-}
-function mergeMetricsWithValues(input: any[]): ProvidersData[] {
-  return input.map((provider) => ({
-    ...provider,
-    sections: provider.sections.map((section: { adAccounts: any[] }) => ({
-      ...section,
-      adAccounts: section.adAccounts.map((account) => {
-        const mergedMetrics = [
-          ...(account.metrics || []),
-          ...(account.customMetrics || []).map(
-            (cm: { name: any; order: any; value: any }) => ({
-              name: cm.name,
-              order: cm.order,
-              value: cm.value ?? 0, // default to 0 if value not set
-            }),
-          ),
-        ];
-
-        // If `value` is missing on standard metric, set it to 0
-        for (const metric of mergedMetrics) {
-          if (typeof metric.value === "undefined") {
-            metric.value = 0;
-          }
-        }
-
-        mergedMetrics.sort((a, b) => a.order - b.order);
-
-        return {
-          adAccountId: account.adAccountId,
-          adAccountName: account.adAccountName,
-          order: account.order,
-          metrics: mergedMetrics,
-        };
-      }),
-    })),
-  }));
 }

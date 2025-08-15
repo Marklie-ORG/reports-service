@@ -1,22 +1,18 @@
+import { FacebookApi } from "../apis/FacebookApi.js";
 import {
-  type Ad,
   AVAILABLE_ADS_METRICS,
   AVAILABLE_CAMPAIGN_METRICS,
   AVAILABLE_GRAPH_METRICS,
   AVAILABLE_KPI_METRICS,
-  type AvailableAdMetric,
-  type AvailableCampaignMetric,
-  type AvailableGraphMetric,
-  type AvailableKpiMetric,
-  type Campaign,
-  type Graph,
-  type KPIs,
+  type Metric,
   type ScheduledAdAccountConfig,
-  type ScheduledMetricGroup,
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
-import { FacebookApi } from "../apis/FacebookApi.js";
-import type { CustomMetric, RuntimeAdAccountData } from "marklie-ts-core";
-import type { SectionConfig } from "../providers/AdsProvider.js";
+import type {
+  ReportDataAd,
+  ReportDataCampaign,
+  ReportDataGraph,
+} from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
+import type { CustomMetric } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces";
 
 export class FacebookDataUtil {
   private static resolveMetricsFromMap(
@@ -34,16 +30,21 @@ export class FacebookDataUtil {
     return Number(values?.find((a) => a.action_type === type)?.value || 0);
   }
 
-  private static getLeads(values: any[], type: string): number {
-    return Number(values?.find((a) => a.action_type === type)?.value || 0);
-  }
+  // private static getLeads(values: any[], type: string): number {
+  //   return Number(values?.find((a) => a.action_type === type)?.value || 0);
+  // }
 
   public static async getAdAccountReportData(
     organizationUuid: string,
     adAccountId: string,
     datePreset: string,
     adAccountConfig: ScheduledAdAccountConfig,
-  ): Promise<RuntimeAdAccountData> {
+  ): Promise<{
+    kpis: Metric[];
+    graphs: ReportDataGraph[];
+    campaigns: ReportDataCampaign[];
+    ads: ReportDataAd[];
+  }> {
     const api = await FacebookApi.create(organizationUuid, adAccountId);
 
     const selectedKpis = this.extractOrderedMetricNames(adAccountConfig.kpis);
@@ -71,11 +72,11 @@ export class FacebookDataUtil {
     }
 
     const fields = [...new Set(allMetrics)];
+    const hasGraphs = selectedGraphs.length > 0;
     const insights = await api.getInsightsSmart("campaign", fields, {
       datePreset,
-      // REMOVE timeIncrement if unnecessary
-      // timeIncrement: 1,
       additionalFields: ["campaign_id", "ad_id", "date_start", "date_stop"],
+      ...(hasGraphs ? { timeIncrement: 1 } : {}),
     });
 
     const kpis = this.aggregateCampaignDataToKPIs(
@@ -83,18 +84,22 @@ export class FacebookDataUtil {
       selectedKpis,
       allCustomMetrics,
     );
+
     const graphs = this.aggregateCampaignDataToGraphs(
       insights,
       selectedGraphs,
       allCustomMetrics,
     );
+
+    console.log(graphs);
+
     const campaigns = this.normalizeCampaigns(
       insights,
       selectedCampaigns,
       allCustomMetrics,
     );
 
-    let ads: any[] = [];
+    let ads: ReportDataAd[] = [];
     if (selectedAds.length > 0) {
       const adsInsights = await api.getAdInsightsWithThumbnails(
         selectedAds,
@@ -109,16 +114,14 @@ export class FacebookDataUtil {
     }
 
     return {
-      adAccountId,
-      adAccountName: await this.getAdAccountName(api, adAccountId),
-      kpis: kpis as KPIs,
+      kpis: kpis as Metric[],
       graphs,
       campaigns,
       ads,
     };
   }
 
-  private static extractOrderedMetricNames<
+  public static extractOrderedMetricNames<
     T extends { name: string; order: number },
   >(metricGroup: {
     order: number;
@@ -153,26 +156,10 @@ export class FacebookDataUtil {
     );
   }
 
-  private static async getAdAccountName(
-    api: FacebookApi,
-    adAccountId: string,
-  ): Promise<string> {
-    try {
-      const adAccount = await api.getEntitiesBatch([adAccountId], ["name"]);
-      return adAccount[0]?.name || `Ad Account ${adAccountId}`;
-    } catch (error) {
-      console.warn(
-        `Could not fetch name for ad account ${adAccountId}:`,
-        error,
-      );
-      return `Ad Account ${adAccountId}`;
-    }
-  }
-
   private static aggregateCampaignDataToKPIs(
     campaignData: any[],
     selectedMetrics: string[],
-    selectedCustomMetrics: { id: string; name: string; order: number }[] = [],
+    selectedCustomMetrics: CustomMetric[] = [],
   ): { name: string; value: any; order: number }[] | null {
     if (!campaignData || campaignData.length === 0) return null;
 
@@ -196,7 +183,6 @@ export class FacebookDataUtil {
     const customMetricFound = new Set<string>();
 
     for (const campaign of campaignData) {
-      console.log(campaign.actions);
       aggregated.spend += Number(campaign.spend || 0);
       aggregated.impressions += Number(campaign.impressions || 0);
       aggregated.clicks += Number(campaign.clicks || 0);
@@ -293,22 +279,20 @@ export class FacebookDataUtil {
     }
 
     const normalize = (s: string) => s.trim().toLowerCase();
-
     const allowedKeys = new Set([
       ...selectedMetrics.map(normalize),
       ...selectedCustomMetrics.map((m) => normalize(m.name)),
     ]);
 
     const metricOrderMap = new Map<string, number>();
-
     selectedMetrics.forEach((name, index) => {
       metricOrderMap.set(name.trim().toLowerCase(), index);
     });
-
     selectedCustomMetrics.forEach((cm) => {
       metricOrderMap.set(cm.name.trim().toLowerCase(), cm.order);
     });
 
+    // Filter and return metrics with order
     return Object.entries(metrics)
       .filter(([key]) => allowedKeys.has(normalize(key)))
       .filter(([key]) => {
@@ -326,22 +310,16 @@ export class FacebookDataUtil {
   }
 
   private static aggregateCampaignDataToGraphs(
-    campaignData: any[],
-    selectedMetrics: string[],
-    customMetrics: { id: string; name: string }[],
-  ): Graph[] {
-    const customMetricIdToName = new Map<string, string>();
-    const foundCustomMetrics = new Set<string>();
-
-    for (const cm of customMetrics) {
-      customMetricIdToName.set(cm.id, cm.name);
-    }
-
-    if (!campaignData || campaignData.length === 0) return [];
+    insights: any[],
+    selectedGraphs: string[],
+    allCustomMetrics: CustomMetric[],
+  ): ReportDataGraph[] {
+    if (!insights || insights.length === 0) return [];
 
     const dateGroups = new Map<string, any[]>();
 
-    for (const dataPoint of campaignData) {
+    // Group insights by date
+    for (const dataPoint of insights) {
       const date = dataPoint.date_start;
       if (!dateGroups.has(date)) {
         dateGroups.set(date, []);
@@ -349,146 +327,86 @@ export class FacebookDataUtil {
       dateGroups.get(date)!.push(dataPoint);
     }
 
-    const graphs: Graph[] = [];
+    const graphs: ReportDataGraph[] = [];
 
     for (const [date, dayData] of dateGroups) {
-      const aggregated: Record<string, number> = {
+      // Aggregate all campaigns for this date
+      const aggregatedInsight: any = {
+        date_start: date,
+        date_stop: dayData[0]?.date_stop || date,
         spend: 0,
         impressions: 0,
         clicks: 0,
         reach: 0,
-        purchases: 0,
-        add_to_cart: 0,
-        initiated_checkouts: 0,
-        conversion_value: 0,
-        engagement: 0,
-        leads: 0,
+        actions: [],
+        action_values: [],
       };
 
-      for (const cm of customMetrics) {
-        aggregated[cm.name] = 0;
-      }
-
+      // Sum up numeric fields
       for (const campaign of dayData) {
-        aggregated.spend += Number(campaign.spend || 0);
-        aggregated.impressions += Number(campaign.impressions || 0);
-        aggregated.clicks += Number(campaign.clicks || 0);
-        aggregated.reach += Number(campaign.reach || 0);
-
-        if (campaign.actions) {
-          for (const action of campaign.actions) {
-            const { action_type, value } = action;
-            if (!action_type || !value) continue;
-
-            const match = action_type.match(
-              /^offsite_conversion\.custom\.(\d+)$/,
-            );
-            if (match) {
-              const id = match[1];
-              const name = customMetricIdToName.get(id);
-              if (name) {
-                foundCustomMetrics.add(name);
-                aggregated[name] = (aggregated[name] ?? 0) + Number(value);
-              }
+        for (const [key, value] of Object.entries(campaign)) {
+          if (
+            typeof value === "number" ||
+            (typeof value === "string" && !isNaN(Number(value)))
+          ) {
+            if (key !== "date_start" && key !== "date_stop") {
+              aggregatedInsight[key] =
+                (aggregatedInsight[key] || 0) + Number(value);
             }
           }
-
-          aggregated.purchases += this.getActionValue(
-            campaign.actions,
-            "omni_purchase",
-          );
-          aggregated.add_to_cart += this.getActionValue(
-            campaign.actions,
-            "omni_add_to_cart",
-          );
-          aggregated.initiated_checkouts += this.getActionValue(
-            campaign.actions,
-            "initiate_checkout",
-          );
-          aggregated.engagement +=
-            this.getActionValue(campaign.actions, "post_engagement") ||
-            this.getActionValue(campaign.actions, "page_engagement");
-          aggregated.leads += this.getActionValue(campaign.actions, "lead");
         }
 
+        // Aggregate actions
+        if (campaign.actions) {
+          for (const action of campaign.actions) {
+            const existing = aggregatedInsight.actions.find(
+              (a: any) => a.action_type === action.action_type,
+            );
+            if (existing) {
+              existing.value = (
+                Number(existing.value) + Number(action.value)
+              ).toString();
+            } else {
+              aggregatedInsight.actions.push({
+                action_type: action.action_type,
+                value: action.value,
+              });
+            }
+          }
+        }
+
+        // Aggregate action_values
         if (campaign.action_values) {
-          aggregated.conversion_value += this.getActionMonetaryValue(
-            campaign.action_values,
-            "omni_purchase",
-          );
+          for (const actionValue of campaign.action_values) {
+            const existing = aggregatedInsight.action_values.find(
+              (a: any) => a.action_type === actionValue.action_type,
+            );
+            if (existing) {
+              existing.value = (
+                Number(existing.value) + Number(actionValue.value)
+              ).toString();
+            } else {
+              aggregatedInsight.action_values.push({
+                action_type: actionValue.action_type,
+                value: actionValue.value,
+              });
+            }
+          }
         }
       }
 
-      const graph: Record<string, any> = {
+      graphs.push({
+        data: this.extractMetricsFromInsight(
+          aggregatedInsight,
+          selectedGraphs,
+          allCustomMetrics,
+        ),
         date_start: date,
-        date_stop: dayData[0].date_stop,
-        spend: aggregated.spend,
-        impressions: aggregated.impressions,
-        clicks: aggregated.clicks,
-        reach: aggregated.reach,
-        purchases: aggregated.purchases,
-        add_to_cart: aggregated.add_to_cart,
-        initiated_checkouts: aggregated.initiated_checkouts,
-        conversion_value: aggregated.conversion_value,
-        engagement: aggregated.engagement,
-
-        cpc: aggregated.clicks > 0 ? aggregated.spend / aggregated.clicks : 0,
-        ctr:
-          aggregated.impressions > 0
-            ? (aggregated.clicks / aggregated.impressions) * 100
-            : 0,
-        cpm:
-          aggregated.impressions > 0
-            ? (aggregated.spend / aggregated.impressions) * 1000
-            : 0,
-        cpp:
-          aggregated.reach > 0
-            ? (aggregated.spend / aggregated.reach) * 1000
-            : 0,
-        purchase_roas:
-          aggregated.spend > 0
-            ? aggregated.conversion_value / aggregated.spend
-            : 0,
-        cost_per_purchase:
-          aggregated.purchases > 0
-            ? aggregated.spend / aggregated.purchases
-            : 0,
-        cost_per_add_to_cart:
-          aggregated.add_to_cart > 0
-            ? aggregated.spend / aggregated.add_to_cart
-            : 0,
-        conversion_rate:
-          aggregated.clicks > 0
-            ? (aggregated.purchases / aggregated.clicks) * 100
-            : 0,
-      };
-
-      if (aggregated.leads > 0) {
-        graph.leads = aggregated.leads;
-        graph.cost_per_lead = aggregated.spend / aggregated.leads;
-      }
-
-      for (const cm of customMetrics) {
-        graph[cm.name] = aggregated[cm.name];
-      }
-
-      const filteredGraph = Object.fromEntries(
-        [...selectedMetrics, ...customMetrics.map((cm) => cm.name)]
-          .filter(
-            (key) =>
-              !customMetrics.find((cm) => cm.name === key) ||
-              foundCustomMetrics.has(key),
-          )
-          .map((key) => [key, graph[key]])
-          .filter(([, v]) => v !== undefined && v !== null && v !== 0),
-      ) as Graph;
-
-      filteredGraph.date_start = date;
-      filteredGraph.date_stop = dayData[0].date_stop;
-
-      graphs.push(filteredGraph);
+        date_stop: aggregatedInsight.date_stop,
+      });
     }
 
+    // Sort by date
     graphs.sort(
       (a, b) =>
         new Date(a.date_start).getTime() - new Date(b.date_start).getTime(),
@@ -497,218 +415,149 @@ export class FacebookDataUtil {
     return graphs;
   }
 
-  protected static normalizeKPIs(
-    apiData: any,
+  private static extractMetricsFromInsight(
+    insight: any,
     selectedMetrics: string[],
-  ): KPIs | null {
-    if (!apiData) return null;
+    customMetrics: CustomMetric[] = [],
+  ): Metric[] {
+    if (!insight) return [];
 
-    const purchases = this.getActionValue(apiData.actions, "omni_purchase");
+    // Create a map for custom metrics by ID
+    const customMetricIdToName = new Map<string, string>();
+    const customMetricOrderMap = new Map<string, number>();
+
+    customMetrics.forEach((cm) => {
+      customMetricIdToName.set(cm.id, cm.name);
+      customMetricOrderMap.set(cm.name, cm.order);
+    });
+
+    // Calculate derived metrics
+    const spend = Number(insight.spend || 0);
+    const impressions = Number(insight.impressions || 0);
+    const clicks = Number(insight.clicks || 0);
+    const reach = Number(insight.reach || 0);
+
+    // Extract action-based metrics
+    const purchases = this.getActionValue(insight.actions, "omni_purchase");
     const add_to_cart = this.getActionValue(
-      apiData.actions,
+      insight.actions,
       "omni_add_to_cart",
     );
     const initiated_checkouts = this.getActionValue(
-      apiData.actions,
+      insight.actions,
       "initiate_checkout",
     );
+    const leads = this.getActionValue(insight.actions, "lead");
+    const engagement =
+      this.getActionValue(insight.actions, "post_engagement") ||
+      this.getActionValue(insight.actions, "page_engagement");
+
+    // Extract monetary values
     const conversion_value = this.getActionMonetaryValue(
-      apiData.action_values,
+      insight.action_values,
       "omni_purchase",
     );
 
-    const leads = this.getLeads(apiData.actions, "lead");
-
-    const metrics: KPIs = {
-      spend: apiData.spend,
-      impressions: apiData.impressions,
-      clicks: apiData.clicks,
-      cpc: apiData.cpc,
-      ctr: apiData.ctr,
-      cpm: apiData.cpm,
-      cpp: apiData.cpp,
-      reach: apiData.reach,
-      purchase_roas: apiData.purchase_roas?.[0]?.value || 0,
+    // Build metrics map with all possible values
+    const metricsMap: Record<string, any> = {
+      // Direct metrics from insight
+      spend,
+      impressions,
+      clicks,
+      reach,
       purchases,
       add_to_cart,
       initiated_checkouts,
+      leads,
+      engagement,
       conversion_value,
-      cost_per_purchase: purchases > 0 ? apiData.spend / purchases : 0,
-      cost_per_add_to_cart: add_to_cart > 0 ? apiData.spend / add_to_cart : 0,
-      conversion_rate:
-        apiData.clicks > 0 ? (purchases / apiData.clicks) * 100 : 0,
-      engagement:
-        this.getActionValue(apiData.actions, "post_engagement") ||
-        this.getActionValue(apiData.actions, "page_engagement") ||
-        0,
-      ...(leads > 0
-        ? {
-            leads,
-            cost_per_lead: apiData.spend / leads,
-          }
-        : {}),
+
+      // Derived metrics
+      cpc: clicks > 0 ? spend / clicks : 0,
+      ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+      cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+      cpp: reach > 0 ? (spend / reach) * 1000 : 0,
+      purchase_roas: spend > 0 ? conversion_value / spend : 0,
+      cost_per_purchase: purchases > 0 ? spend / purchases : 0,
+      cost_per_add_to_cart: add_to_cart > 0 ? spend / add_to_cart : 0,
+      cost_per_lead: leads > 0 ? spend / leads : 0,
+      conversion_rate: clicks > 0 ? (purchases / clicks) * 100 : 0,
+
+      // Any other direct fields from insight
+      ...Object.fromEntries(
+        Object.entries(insight).filter(
+          ([_key, value]) =>
+            typeof value === "number" || typeof value === "string",
+        ),
+      ),
     };
 
-    return Object.fromEntries(
-      Object.entries(metrics).filter(([key]) => selectedMetrics.includes(key)),
-    ) as KPIs;
-  }
-
-  protected static normalizeGraphs(graphs: any[], metrics: string[]): Graph[] {
-    return graphs.map((g) => {
-      const spend = parseFloat(g.spend || "0");
-      const clicks = parseInt(g.clicks || "0");
-      const purchases = this.getActionValue(g.actions, "omni_purchase");
-      const add_to_cart = this.getActionValue(g.actions, "omni_add_to_cart");
-      const leads = this.getLeads(g.actions, "lead");
-
-      const graph: Graph = {
-        date_start: g.date_start,
-        date_stop: g.date_stop,
-        spend,
-        impressions: parseInt(g.impressions || "0"),
-        clicks,
-        cpc: g.cpc,
-        ctr: g.ctr,
-        cpm: g.cpm,
-        cpp: g.cpp,
-        reach: g.reach,
-        purchase_roas: g.purchase_roas?.[0]?.value || 0,
-        purchases,
-        add_to_cart,
-        initiated_checkouts: this.getActionValue(
-          g.actions,
-          "initiate_checkout",
-        ),
-        conversion_value: this.getActionMonetaryValue(
-          g.action_values,
-          "omni_purchase",
-        ),
-        cost_per_purchase: purchases > 0 ? spend / purchases : 0,
-        cost_per_add_to_cart: add_to_cart > 0 ? spend / add_to_cart : 0,
-        conversion_rate: clicks > 0 ? (purchases / clicks) * 100 : 0,
-        engagement:
-          this.getActionValue(g.actions, "post_engagement") ||
-          this.getActionValue(g.actions, "page_engagement") ||
-          0,
-        ...(leads > 0
-          ? {
-              leads,
-              cost_per_lead: spend / leads,
-            }
-          : {}),
-      };
-
-      return Object.fromEntries(
-        metrics
-          .map((key) => [key, graph[key as keyof Graph]])
-          .filter(([, v]) => v !== undefined),
-      ) as Graph;
-    });
-  }
-
-  private static normalizeCampaigns(
-    campaigns: any[],
-    selectedMetrics: string[],
-    customMetrics: { id: string; name: string }[] = [],
-  ): Campaign[] {
-    const customMetricIdToName = new Map<string, string>();
+    // Handle custom metrics from actions
     const foundCustomMetrics = new Set<string>();
+    if (insight.actions && customMetrics.length > 0) {
+      for (const action of insight.actions) {
+        const { action_type, value } = action;
+        if (!action_type || !value) continue;
 
-    for (const cm of customMetrics) {
-      customMetricIdToName.set(cm.id, cm.name);
-    }
-
-    return campaigns.map((c, index) => {
-      const spend = parseFloat(c.spend || "0");
-      const clicks = parseInt(c.clicks || "0");
-      const purchases = this.getActionValue(c.actions, "omni_purchase");
-      const add_to_cart = this.getActionValue(c.actions, "omni_add_to_cart");
-      const leads = this.getLeads(c.actions, "lead");
-
-      const customMetricMap: Record<string, number> = {};
-
-      if (c.actions) {
-        for (const action of c.actions) {
-          const { action_type, value } = action;
-          if (!action_type || !value) continue;
-
-          const match = action_type.match(
-            /^offsite_conversion\.custom\.(\d+)$/,
-          );
-          if (match) {
-            const id = match[1];
-            const name = customMetricIdToName.get(id);
-            if (name) {
-              foundCustomMetrics.add(name);
-              customMetricMap[name] =
-                (customMetricMap[name] ?? 0) + Number(value);
-            }
+        const match = action_type.match(/^offsite_conversion\.custom\.(\d+)$/);
+        if (match) {
+          const id = match[1];
+          const name = customMetricIdToName.get(id);
+          if (name) {
+            foundCustomMetrics.add(name);
+            metricsMap[name] = (metricsMap[name] ?? 0) + Number(value);
           }
         }
       }
+    }
 
-      const campaign: Campaign = {
-        index,
-        campaign_name: c.campaign_name,
-        spend,
-        impressions: c.impressions,
-        clicks,
-        cpc: c.cpc,
-        ctr: c.ctr,
-        cpm: c.cpm,
-        cpp: c.cpp,
-        reach: c.reach,
-        purchase_roas: c.purchase_roas?.[0]?.value || 0,
-        purchases,
-        add_to_cart,
-        initiated_checkouts: this.getActionValue(
-          c.actions,
-          "initiate_checkout",
-        ),
-        conversion_value: this.getActionMonetaryValue(
-          c.action_values,
-          "omni_purchase",
-        ),
-        cost_per_purchase: purchases > 0 ? spend / purchases : 0,
-        cost_per_add_to_cart: add_to_cart > 0 ? spend / add_to_cart : 0,
-        conversion_rate: clicks > 0 ? (purchases / clicks) * 100 : 0,
-        engagement:
-          this.getActionValue(c.actions, "post_engagement") ||
-          this.getActionValue(c.actions, "page_engagement") ||
-          0,
-        ...(leads > 0
-          ? {
-              leads,
-              cost_per_lead: spend / leads,
-            }
-          : {}),
-        ...customMetricMap,
-      };
-
-      const finalFields = [
-        "index",
-        "campaign_name",
-        ...selectedMetrics,
-        ...customMetrics.map((cm) => cm.name),
-      ];
-      customMetrics = customMetrics.filter((cm) =>
-        foundCustomMetrics.has(cm.name),
-      );
-      Object.keys(campaign).forEach((key) => {
-        const value = campaign[key as keyof Campaign];
-        const isCustom = customMetrics.some((cm) => cm.name === key);
-
-        if (
-          !finalFields.includes(key) ||
-          (isCustom && (value === 0 || value === undefined || value === null))
-        ) {
-          delete campaign[key as keyof Campaign];
-        }
-      });
-
-      return campaign;
+    // Create order map for selected metrics
+    const metricOrderMap = new Map<string, number>();
+    selectedMetrics.forEach((name, index) => {
+      metricOrderMap.set(name.toLowerCase(), index);
     });
+
+    // Filter and format metrics based on selected metrics and found custom metrics
+    const normalizeKey = (key: string) => key.toLowerCase();
+    const allowedMetrics = new Set([
+      ...selectedMetrics.map(normalizeKey),
+      ...Array.from(foundCustomMetrics).map(normalizeKey),
+    ]);
+
+    return Object.entries(metricsMap)
+      .filter(([key]) => allowedMetrics.has(normalizeKey(key)))
+      .filter(([key]) => {
+        // Include custom metrics only if they were found in actions
+        const isCustom = customMetrics.some(
+          (cm) => normalizeKey(cm.name) === normalizeKey(key),
+        );
+        return !isCustom || foundCustomMetrics.has(key);
+      })
+      .map(([name, value]) => ({
+        name,
+        value: value ?? 0,
+        order:
+          metricOrderMap.get(normalizeKey(name)) ??
+          customMetricOrderMap.get(name) ??
+          999,
+      }))
+      .sort((a, b) => a.order - b.order);
+  }
+
+  private static normalizeCampaigns(
+    insights: any[],
+    selectedCampaigns: string[],
+    allCustomMetrics: CustomMetric[],
+  ): ReportDataCampaign[] {
+    return insights.map((campaign, index) => ({
+      index,
+      campaign_name: campaign.campaign_name || `Campaign ${index + 1}`,
+      data: this.extractMetricsFromInsight(
+        campaign,
+        selectedCampaigns,
+        allCustomMetrics,
+      ),
+    }));
   }
 
   private static getBest10AdsByROAS(ads: any[], metric: string): any[] {
@@ -719,63 +568,25 @@ export class FacebookDataUtil {
   }
 
   private static async processAds(
-    ads: any[],
-    selectedMetrics: string[],
+    adsInsights: any[],
+    selectedAds: string[],
     organizationUuid: string,
-    accountId: string,
-  ): Promise<Ad[]> {
-    const shownAds = this.getBest10AdsByROAS(ads, "impressions");
-    const api = await FacebookApi.create(organizationUuid, accountId);
+    adAccountId: string,
+  ): Promise<ReportDataAd[]> {
+    const shownAds = this.getBest10AdsByROAS(adsInsights, "impressions");
+    const api = await FacebookApi.create(organizationUuid, adAccountId);
 
-    const reportAds: Ad[] = shownAds.map((ad) => {
-      const clicks = parseInt(ad.clicks || "0");
-      const spend = parseFloat(ad.spend || "0");
-      const purchases = this.getActionValue(ad.actions, "omni_purchase");
-      const add_to_cart = this.getActionValue(ad.actions, "omni_add_to_cart");
-      const leads = this.getLeads(ad.actions, "lead");
+    const reportAds: ReportDataAd[] = shownAds.map((ad) => ({
+      adId: ad.adId || ad.ad_id,
+      adCreativeId: ad.adCreativeId || "",
+      thumbnailUrl: ad.thumbnailUrl || "",
+      sourceUrl: ad.sourceUrl || "",
+      ad_name: ad.ad_name || "",
+      data: this.extractMetricsFromInsight(ad, selectedAds, []),
+    }));
 
-      return {
-        adId: ad.ad_id,
-        adCreativeId: "",
-        thumbnailUrl: "",
-        sourceUrl: "",
-        ad_name: ad.ad_name,
-        spend,
-        impressions: ad.impressions,
-        clicks,
-        cpc: ad.cpc,
-        ctr: ad.ctr,
-        cpm: ad.cpm,
-        cpp: ad.cpp,
-        reach: ad.reach,
-        purchase_roas: ad.purchase_roas?.[0]?.value || 0,
-        purchases,
-        add_to_cart,
-        initiated_checkouts: this.getActionValue(
-          ad.actions,
-          "initiate_checkout",
-        ),
-        conversion_value: this.getActionMonetaryValue(
-          ad.action_values,
-          "omni_purchase",
-        ),
-        cost_per_purchase: purchases > 0 ? spend / purchases : 0,
-        cost_per_add_to_cart: add_to_cart > 0 ? spend / add_to_cart : 0,
-        conversion_rate: clicks > 0 ? (purchases / clicks) * 100 : 0,
-        engagement:
-          this.getActionValue(ad.actions, "post_engagement") ||
-          this.getActionValue(ad.actions, "page_engagement") ||
-          0,
-        ...(leads > 0
-          ? {
-              leads,
-              cost_per_lead: spend / leads,
-            }
-          : {}),
-      };
-    });
-
-    const adIds = shownAds.map((a) => a.ad_id);
+    // --- Enrich with Creative IDs ---
+    const adIds = shownAds.map((a) => a.adId || a.ad_id);
     const adEntities = await api.getEntitiesBatch(adIds, [
       "id",
       "creative{id}",
@@ -793,11 +604,13 @@ export class FacebookDataUtil {
       "instagram_permalink_url",
     ]);
 
+    // Assign creativeId to ads
     reportAds.forEach((ad) => {
       const adEntity = adEntities.find((e: any) => e.id === ad.adId);
       ad.adCreativeId = adEntity?.creative?.id || "";
     });
 
+    // --- Fetch thumbnail & sourceUrl ---
     await Promise.all(
       reportAds.map(async (ad) => {
         const asset = creativeAssets.find((c: any) => c.id === ad.adCreativeId);
@@ -827,76 +640,6 @@ export class FacebookDataUtil {
       }),
     );
 
-    const finalKeys = [
-      "adId",
-      "adCreativeId",
-      "thumbnailUrl",
-      "sourceUrl",
-      ...selectedMetrics,
-    ];
-    reportAds.forEach((ad) => {
-      Object.keys(ad).forEach((key) => {
-        if (!finalKeys.includes(key)) {
-          delete ad[key as keyof Ad];
-        }
-      });
-    });
-
     return reportAds;
   }
-}
-
-export function convertSectionsToScheduledConfigs(
-  sections: SectionConfig[],
-): ScheduledAdAccountConfig[] {
-  const map = new Map<string, ScheduledAdAccountConfig>();
-  const adAccountOrder: string[] = [];
-
-  for (const section of sections) {
-    for (const account of section.adAccounts) {
-      const adAccountId = account.adAccountId;
-
-      if (!map.has(adAccountId)) {
-        adAccountOrder.push(adAccountId); // Track insertion order
-        map.set(adAccountId, {
-          adAccountId,
-          kpis: emptyGroup(),
-          graphs: emptyGroup(),
-          ads: emptyGroup(),
-          campaigns: emptyGroup(),
-        });
-      }
-
-      const group = {
-        order: account.order,
-        metrics: account.metrics,
-        customMetrics: account.customMetrics ?? undefined,
-      };
-
-      const existing = map.get(adAccountId)!;
-
-      switch (section.name) {
-        case "kpis":
-          existing.kpis = group as ScheduledMetricGroup<AvailableKpiMetric>;
-          break;
-        case "graphs":
-          existing.graphs = group as ScheduledMetricGroup<AvailableGraphMetric>;
-          break;
-        case "ads":
-          existing.ads = group as ScheduledMetricGroup<AvailableAdMetric>;
-          break;
-        case "campaigns":
-          existing.campaigns =
-            group as ScheduledMetricGroup<AvailableCampaignMetric>;
-          break;
-      }
-    }
-  }
-
-  // Return ad accounts in the order they were originally added
-  return adAccountOrder.map((id) => map.get(id)!);
-}
-
-function emptyGroup(): ScheduledMetricGroup<any> {
-  return { order: 0, metrics: [] };
 }
