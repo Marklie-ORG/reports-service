@@ -549,7 +549,9 @@ export class FacebookDataUtil {
     selectedCampaigns: string[],
     allCustomMetrics: CustomMetric[],
   ): ReportDataCampaign[] {
-    return insights.map((campaign, index) => ({
+    const topCampaigns = this.getTopCampaigns(insights, 15);
+
+    return topCampaigns.map((campaign, index) => ({
       index,
       campaign_name: campaign.campaign_name || `Campaign ${index + 1}`,
       data: this.extractMetricsFromInsight(
@@ -558,6 +560,59 @@ export class FacebookDataUtil {
         allCustomMetrics,
       ),
     }));
+  }
+
+  private static getTopCampaigns(campaigns: any[], limit: number = 10): any[] {
+    if (!campaigns || campaigns.length === 0) {
+      return [];
+    }
+
+    // Define priority metrics for campaign filtering (in order of preference)
+    const metricPriority = [
+      "spend", // Most important - shows budget allocation
+      "impressions", // Shows reach and visibility
+      "clicks", // Shows engagement
+      "purchases", // Shows conversions
+      "conversion_value", // Shows revenue
+      "reach", // Shows unique reach
+      "add_to_cart", // Shows interest
+    ];
+
+    let sortMetric = "spend"; // Default to spend
+    let filteredCampaigns: any[] = [];
+
+    for (const metric of metricPriority) {
+      filteredCampaigns = campaigns.filter((campaign) => {
+        const value = Number(campaign[metric] || 0);
+        return value > 0;
+      });
+
+      if (filteredCampaigns.length > 0) {
+        sortMetric = metric;
+        console.log(
+          `Filtering campaigns by ${sortMetric} - found ${filteredCampaigns.length} campaigns with data`,
+        );
+        break;
+      }
+    }
+
+    if (filteredCampaigns.length === 0) {
+      console.log(
+        "No campaigns found with priority metrics, returning all campaigns",
+      );
+      filteredCampaigns = campaigns;
+      sortMetric = "spend"; // Keep default for sorting
+    }
+
+    const sortedCampaigns = filteredCampaigns.sort((a, b) => {
+      const valueA = Number(a[sortMetric] || 0);
+      const valueB = Number(b[sortMetric] || 0);
+      return valueB - valueA; // Descending order (highest first)
+    });
+
+    // Apply the limit
+    const topCampaigns = sortedCampaigns.slice(0, limit);
+    return topCampaigns;
   }
 
   private static getBest10AdsByROAS(ads: any[], metric: string): any[] {
