@@ -556,7 +556,7 @@ export class FacebookDataUtil {
       campaign_name: campaign.campaign_name || `Campaign ${index + 1}`,
       data: this.extractMetricsFromInsight(
         campaign,
-        selectedCampaigns,
+        selectedCampaigns.filter((m) => m !== "campaign_name"),
         allCustomMetrics,
       ),
     }));
