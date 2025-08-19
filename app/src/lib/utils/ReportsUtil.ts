@@ -149,6 +149,16 @@ export class ReportsUtil {
     client: OrganizationClient,
     generatedReportData: ReportData[],
   ): Promise<Report> {
+    const gcs = GCSWrapper.getInstance("marklie-client-reports");
+
+    if (data.images) {
+      data.images.organizationLogo = data.images.organizationLogo
+        ? await gcs.getSignedUrl(data.images.organizationLogo)
+        : "";
+      data.images.clientLogo = data.images.clientLogo
+        ? await gcs.getSignedUrl(data.images.clientLogo)
+        : "";
+    }
     const report = database.em.create(Report, {
       organization: client.organization,
       client,
