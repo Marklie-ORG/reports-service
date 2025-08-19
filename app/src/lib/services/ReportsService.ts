@@ -18,7 +18,11 @@ const config = ReportsConfigService.getInstance();
 
 export class ReportsService {
   async getReport(uuid: string): Promise<Report | null> {
-    return await database.em.findOne(Report, { uuid });
+    return await database.em.findOne(
+      Report,
+      { uuid },
+      { populate: ["client", "organization"] },
+    );
   }
 
   async getReports(organizationUuid: string | undefined): Promise<Report[]> {
