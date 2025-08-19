@@ -69,6 +69,7 @@ process.on("SIGINT", async () => {
   process.exit(0);
 });
 
+
 // const request: ReportScheduleRequest = {
 //   time: "13:03",
 //   images: {
@@ -331,3 +332,4 @@ process.on("SIGINT", async () => {
 // // console.log(jobData.data[0].adAccounts[0].ads);
 // // console.log(jobData.data[0].adAccounts[0].campaigns);
 // await ReportsUtil.processScheduledReportJob(jobData);
+
