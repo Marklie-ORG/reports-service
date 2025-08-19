@@ -62,7 +62,7 @@ export class FacebookDataUtil {
       ...this.resolveMetricsFromMap(selectedAds, AVAILABLE_ADS_METRICS),
       ...this.resolveMetricsFromMap(selectedGraphs, AVAILABLE_GRAPH_METRICS),
       ...this.resolveMetricsFromMap(
-        selectedCampaigns,
+        [...selectedCampaigns, "campaign_name"],
         AVAILABLE_CAMPAIGN_METRICS,
       ),
     ];
