@@ -17,6 +17,7 @@ import { AxiosError } from "axios";
 import { Temporal } from "@js-temporal/polyfill";
 import { ReportsConfigService } from "../config/config.js";
 import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
+import type { SectionConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 import { ProviderFactory } from "../providers/ProviderFactory.js";
 
 const logger: Log = Log.getInstance().extend("reports-util");
@@ -73,7 +74,7 @@ export class ReportsUtil {
         await provider.authenticate(data.organizationUuid);
 
         const sections = await provider.getProviderData(
-          providerConfig.sections,
+          providerConfig.sections as unknown as SectionConfig[],
           data.clientUuid,
           data.organizationUuid,
           data.datePreset,

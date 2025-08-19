@@ -4,8 +4,7 @@ import { MarklieError, User } from "marklie-ts-core";
 import type { ScheduleBulkActionRequest } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { SchedulesService } from "../services/SchedulesService.js";
 import type {
-  ReportScheduleRequest,
-  SchedulingOptionMetrics,
+  ReportScheduleRequest
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 export class SchedulesController extends Router {
@@ -21,10 +20,7 @@ export class SchedulesController extends Router {
     this.post("/schedule", this.scheduleReport.bind(this));
 
     this.get("/client/:clientUuid", this.getSchedulingOptions.bind(this));
-    this.put(
-      "/report-metrics-selections/:uuid",
-      this.updateReportMetricsSelections.bind(this),
-    );
+    
     this.put("/stop", this.stopSchedulingOptions.bind(this));
     this.put("/delete", this.deleteSchedulingOption.bind(this));
     this.put("/activate", this.activateSchedulingOption.bind(this));
@@ -95,22 +91,6 @@ export class SchedulesController extends Router {
 
     ctx.body =
       await this.schedulesService.getAvailableMetricsForAdAccounts(clientUuid);
-    ctx.status = 200;
-  }
-
-  private async updateReportMetricsSelections(ctx: Context) {
-    const metricsSelections: SchedulingOptionMetrics = ctx.request
-      .body as SchedulingOptionMetrics;
-    const uuid = ctx.params.uuid as string;
-
-    await this.schedulesService.updateReportMetricsSelections(
-      uuid,
-      metricsSelections,
-    );
-
-    ctx.body = {
-      message: "Report metrics selections updated successfully",
-    };
     ctx.status = 200;
   }
 
