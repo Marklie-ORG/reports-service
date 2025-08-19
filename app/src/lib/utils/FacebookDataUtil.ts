@@ -618,38 +618,60 @@ export class FacebookDataUtil {
       "instagram_permalink_url",
     ]);
 
-    // Assign creativeId to ads
     reportAds.forEach((ad) => {
       const adEntity = adEntities.find((e: any) => e.id === ad.adId);
       ad.adCreativeId = adEntity?.creative?.id || "";
     });
 
-    // --- Fetch thumbnail & sourceUrl ---
     await Promise.all(
-      reportAds.map(async (ad) => {
-        const asset = creativeAssets.find((c: any) => c.id === ad.adCreativeId);
-        if (!asset) return;
+      reportAds.map(async (reportAd) => {
+        const creativeAsset = creativeAssets.find(
+          (c: { id: string }) => c.id === reportAd.adCreativeId,
+        );
+        if (!creativeAsset) return;
 
-        if (asset.effective_instagram_media_id) {
+        const {
+          effective_instagram_media_id,
+          effective_object_story_id,
+          thumbnail_url,
+          instagram_permalink_url,
+        } = creativeAsset;
+
+        if (effective_instagram_media_id) {
           const igMedia = await api.getInstagramMedia(
-            asset.effective_instagram_media_id,
+            effective_instagram_media_id,
           );
-          ad.thumbnailUrl =
-            igMedia.media_type === "IMAGE" && !igMedia.thumbnail_url
-              ? igMedia.media_url
-              : igMedia.thumbnail_url;
-          ad.sourceUrl = igMedia.permalink;
-        } else if (asset.effective_object_story_id) {
-          const postId = asset.effective_object_story_id.split("_")[1];
+
+          if (igMedia.media_type === "CAROUSEL_ALBUM") {
+            const children = await api.getInstagramCarouselChildren(
+              effective_instagram_media_id,
+            );
+
+            const firstChild = children?.data?.[0];
+            if (firstChild) {
+              const childMedia = await api.getInstagramMedia(firstChild.id);
+              reportAd.thumbnailUrl =
+                childMedia.media_type === "IMAGE" && !childMedia.thumbnail_url
+                  ? childMedia.media_url
+                  : childMedia.thumbnail_url;
+              reportAd.sourceUrl = childMedia.permalink || igMedia.permalink;
+            }
+          } else {
+            reportAd.thumbnailUrl =
+              igMedia.media_type === "IMAGE" && !igMedia.thumbnail_url
+                ? igMedia.media_url
+                : igMedia.thumbnail_url;
+            reportAd.sourceUrl = igMedia.permalink;
+          }
+        } else if (effective_object_story_id) {
+          const postId = effective_object_story_id.split("_")[1];
           const post = await api.getPost(postId);
-          ad.thumbnailUrl =
-            post.adcreatives?.data?.[0]?.thumbnail_url ||
-            asset.thumbnail_url ||
-            "";
-          ad.sourceUrl =
-            post.permalink_url || asset.instagram_permalink_url || "";
+          reportAd.thumbnailUrl =
+            post.adcreatives?.data?.[0]?.thumbnail_url || thumbnail_url || "";
+          reportAd.sourceUrl =
+            post.permalink_url || instagram_permalink_url || "";
         } else {
-          ad.thumbnailUrl = asset.thumbnail_url || "";
+          reportAd.thumbnailUrl = thumbnail_url || "";
         }
       }),
     );

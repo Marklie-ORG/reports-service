@@ -539,6 +539,21 @@ export class FacebookApi {
     });
   }
 
+  public async getInstagramCarouselChildren(mediaId: string): Promise<any> {
+    const res = await this.api.get(`/${mediaId}/children`, {
+      params: {
+        fields: [
+          "id",
+          "media_type",
+          "media_url",
+          "thumbnail_url",
+          "permalink",
+        ].join(","),
+      },
+    });
+    return res.data;
+  }
+
   public async getUserAdAccounts(): Promise<any> {
     return await this.executeWithCircuitBreaker(async () => {
       const res = await this.api.get(`/me/adaccounts`, {
