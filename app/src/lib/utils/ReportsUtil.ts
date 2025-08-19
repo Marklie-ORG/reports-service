@@ -10,13 +10,14 @@ import {
 } from "marklie-ts-core";
 import puppeteer from "puppeteer";
 import type {
-  ProvidersData,
+  ReportData,
   ReportJobData,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { AxiosError } from "axios";
 import { Temporal } from "@js-temporal/polyfill";
 import { ReportsConfigService } from "../config/config.js";
 import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
+import type { SectionConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 import { ProviderFactory } from "../providers/ProviderFactory.js";
 
 const logger: Log = Log.getInstance().extend("reports-util");
@@ -31,13 +32,13 @@ export class ReportsUtil {
       logger.info(`Generating report for Client UUID: ${data.clientUuid}`);
 
       const client = await this.getClient(data.clientUuid);
+
       if (!client) return { success: false };
 
-      const providersData = mergeMetricsWithValues(
-        await this.generateProvidersReports(data),
-      );
+      const providersData = await this.generateProvidersReports(data);
 
       const report = await this.saveReportEntity(data, client, providersData);
+
       await this.updateLastRun(data.scheduleUuid);
 
       if (!data.reviewRequired) {
@@ -61,8 +62,8 @@ export class ReportsUtil {
 
   private static async generateProvidersReports(
     data: ReportJobData,
-  ): Promise<ProvidersData[]> {
-    const providersData: ProvidersData[] = [];
+  ): Promise<ReportData[]> {
+    const providersData: ReportData[] = [];
 
     for (const providerConfig of data.data) {
       try {
@@ -72,16 +73,16 @@ export class ReportsUtil {
         );
         await provider.authenticate(data.organizationUuid);
 
-        const result = await provider.getProviderData(
-          providerConfig.sections,
+        const sections = await provider.getProviderData(
+          providerConfig.sections as unknown as SectionConfig[],
           data.clientUuid,
           data.organizationUuid,
           data.datePreset,
         );
 
         providersData.push({
-          name: providerConfig.provider,
-          sections: result,
+          provider: providerConfig.provider,
+          sections,
         });
       } catch (error) {
         logger.error(
@@ -147,8 +148,18 @@ export class ReportsUtil {
   private static async saveReportEntity(
     data: ReportJobData,
     client: OrganizationClient,
-    generatedReportData: ProvidersData[],
+    generatedReportData: ReportData[],
   ): Promise<Report> {
+    const gcs = GCSWrapper.getInstance("marklie-client-reports");
+
+    if (data.images) {
+      data.images.organizationLogo = data.images.organizationLogo
+        ? await gcs.getSignedUrl(data.images.organizationLogo)
+        : "";
+      data.images.clientLogo = data.images.clientLogo
+        ? await gcs.getSignedUrl(data.images.clientLogo)
+        : "";
+    }
     const report = database.em.create(Report, {
       organization: client.organization,
       client,
@@ -360,38 +371,4 @@ export class ReportsUtil {
     }
   }
 }
-function mergeMetricsWithValues(input: any[]) {
-  return input.map((provider) => ({
-    ...provider,
-    sections: provider.sections.map((section: { adAccounts: any[] }) => ({
-      ...section,
-      adAccounts: section.adAccounts.map((account) => {
-        const mergedMetrics = [
-          ...(account.metrics || []),
-          ...(account.customMetrics || []).map(
-            (cm: { name: any; order: any; value: any }) => ({
-              name: cm.name,
-              order: cm.order,
-              value: cm.value ?? 0,
-            }),
-          ),
-        ];
 
-        for (const metric of mergedMetrics) {
-          if (typeof metric.value === "undefined") {
-            metric.value = 0;
-          }
-        }
-
-        mergedMetrics.sort((a, b) => a.order - b.order);
-
-        return {
-          adAccountId: account.adAccountId,
-          adAccountName: account.adAccountName,
-          order: account.order,
-          metrics: mergedMetrics,
-        };
-      }),
-    })),
-  }));
-}

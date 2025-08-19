@@ -6,6 +6,7 @@ import {
   type SendAfterReviewRequest,
   type ReportImages,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
+import type { ScheduledProviderConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 export class ReportsController extends Router {
   private readonly reportsService: ReportsService;
@@ -18,8 +19,13 @@ export class ReportsController extends Router {
   private setUpRoutes() {
     this.get("/:uuid", this.getReport.bind(this));
     this.get("/", this.getReports.bind(this));
+    this.get("/client/:uuid", this.getClientReports.bind(this));
     this.post("/send-after-review", this.sendAfterReview.bind(this));
     this.put("/report-images/:uuid", this.updateReportImages.bind(this));
+    this.put(
+      "/report-data/:uuid",
+      this.updateReportData.bind(this),
+    );
   }
 
   private async getReport(ctx: Context) {
@@ -44,6 +50,12 @@ export class ReportsController extends Router {
     ctx.status = 200;
   }
 
+  private async getClientReports(ctx: Context) {
+    const clientUuid = ctx.params.uuid as string;
+    ctx.body = await this.reportsService.getClientReports(clientUuid);
+    ctx.status = 200;
+  }
+
   private async sendAfterReview(ctx: Context) {
     const body = ctx.request.body as SendAfterReviewRequest;
 
@@ -65,6 +77,22 @@ export class ReportsController extends Router {
 
     ctx.body = {
       message: "Report images updated successfully",
+    };
+    ctx.status = 200;
+  }
+
+  private async updateReportData(ctx: Context) {
+    const providers: ScheduledProviderConfig[] = ctx.request
+      .body as ScheduledProviderConfig[];
+    const uuid = ctx.params.uuid as string;
+
+    await this.reportsService.updateReportData(
+      uuid,
+      providers,
+    );
+
+    ctx.body = {
+      message: "Report metrics selections updated successfully",
     };
     ctx.status = 200;
   }

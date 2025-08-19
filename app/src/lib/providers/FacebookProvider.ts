@@ -1,16 +1,26 @@
 import { FacebookApi } from "../apis/FacebookApi.js";
-import { type AdsProvider, type SectionConfig } from "./AdsProvider.js";
+import { type AdsProvider } from "./AdsProvider.js";
 import {
   ClientAdAccount,
   Database,
-  type RuntimeAdAccountData,
+  type ReportDataAd,
+  type ReportDataCampaign,
+  type ReportDataGraph,
+  type ReportDataSection,
+  type ReportDataSectionAdAccount,
 } from "marklie-ts-core";
-import {
-  convertSectionsToScheduledConfigs,
-  FacebookDataUtil,
-} from "../utils/FacebookDataUtil.js";
+import { FacebookDataUtil } from "../utils/FacebookDataUtil.js";
 import pLimit from "p-limit";
-import type { ScheduledAdAccountConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
+import type {
+  AvailableAdMetric,
+  AvailableCampaignMetric,
+  AvailableGraphMetric,
+  AvailableKpiMetric,
+  Metric,
+  ScheduledAdAccountConfig,
+  ScheduledMetricGroup,
+  SectionConfig,
+} from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 const database = await Database.getInstance();
 
@@ -30,14 +40,13 @@ export class FacebookProvider implements AdsProvider {
     clientUuid: string,
     organizationUuid: string,
     datePreset: string,
-  ): Promise<SectionConfig[]> {
+  ): Promise<ReportDataSection[]> {
     const linkedAccounts = await database.em.find(ClientAdAccount, {
       client: clientUuid,
     });
-
     const scheduledConfigs = convertSectionsToScheduledConfigs(sections);
 
-    const groupedConfigs = new Map<string, ScheduledAdAccountConfig>();
+    const groupedConfigs = new Map();
 
     for (const config of scheduledConfigs) {
       const existing = groupedConfigs.get(config.adAccountId);
@@ -61,7 +70,7 @@ export class FacebookProvider implements AdsProvider {
     }
 
     const limit = pLimit(5);
-    const dataMap = new Map<string, RuntimeAdAccountData>();
+    const dataMap = new Map();
 
     await Promise.all(
       Array.from(groupedConfigs.values()).map((config) =>
@@ -90,37 +99,142 @@ export class FacebookProvider implements AdsProvider {
       ),
     );
 
-    return sections.map((section) => {
-      const updatedAdAccounts = section.adAccounts.map((adAccount) => {
-        const runtime = dataMap.get(adAccount.adAccountId);
-        if (!runtime) return adAccount;
+    // Transform to new ReportDataSection structure
+    return sections.map((section): ReportDataSection => {
+      const adAccounts: ReportDataSectionAdAccount[] = section.adAccounts.map(
+        (adAccount: { adAccountId: string; order: any }) => {
+          const runtime = dataMap.get(adAccount.adAccountId);
+          const linked = linkedAccounts.find(
+            (acc) => acc.adAccountId === adAccount.adAccountId,
+          );
 
-        let metrics: any = [];
-        switch (section.name) {
-          case "kpis":
-            metrics = runtime.kpis ?? [];
-            break;
-          case "graphs":
-            metrics = runtime.graphs ?? [];
-            break;
-          case "ads":
-            metrics = runtime.ads ?? [];
-            break;
-          case "campaigns":
-            metrics = runtime.campaigns ?? [];
-            break;
-        }
+          if (!runtime) {
+            // Fallback: create empty data with requested metrics set to 0
+            const config = groupedConfigs.get(adAccount.adAccountId);
+            let fallbackData:
+              | Metric[]
+              | ReportDataAd[]
+              | ReportDataCampaign[]
+              | ReportDataGraph[] = [];
 
-        return {
-          ...adAccount,
-          adAccountName: runtime.adAccountName,
-          metrics,
-        };
-      });
+            if (config) {
+              switch (section.name) {
+                case "kpis":
+                  const selectedKpis =
+                    FacebookDataUtil.extractOrderedMetricNames(config.kpis);
+                  const kpisCustomMetrics = config.kpis.customMetrics || [];
+
+                  // Combine regular metrics and custom metrics
+                  const kpisMetrics = selectedKpis.map((name, index) => ({
+                    name,
+                    order: index,
+                    value: 0,
+                  }));
+
+                  const kpisCustom = kpisCustomMetrics.map(
+                    (cm: { name: any; order: any }) => ({
+                      name: cm.name,
+                      order: cm.order,
+                      value: 0,
+                    }),
+                  );
+
+                  fallbackData = [...kpisMetrics, ...kpisCustom].sort(
+                    (a, b) => a.order - b.order,
+                  );
+                  break;
+
+                case "graphs":
+                  const selectedGraphs =
+                    FacebookDataUtil.extractOrderedMetricNames(config.graphs);
+                  const graphsCustomMetrics = config.graphs.customMetrics || [];
+
+                  // Combine regular metrics and custom metrics for graphs
+                  const graphsMetrics = selectedGraphs.map((name, index) => ({
+                    name,
+                    order: index,
+                    value: 0,
+                  }));
+
+                  const graphsCustom = graphsCustomMetrics.map(
+                    (cm: { name: any; order: any }) => ({
+                      name: cm.name,
+                      order: cm.order,
+                      value: 0,
+                    }),
+                  );
+
+                  fallbackData = [
+                    {
+                      data: [...graphsMetrics, ...graphsCustom].sort(
+                        (a, b) => a.order - b.order,
+                      ),
+                      date_start: new Date().toISOString().split("T")[0],
+                      date_stop: new Date().toISOString().split("T")[0],
+                    },
+                  ];
+                  break;
+
+                case "ads":
+                  // For ads, return empty array as there are no ads to show
+                  fallbackData = [];
+                  break;
+
+                case "campaigns":
+                  // For campaigns, return empty array as there are no campaigns to show
+                  fallbackData = [];
+                  break;
+
+                default:
+                  fallbackData = [];
+              }
+            }
+
+            return {
+              adAccountId: adAccount.adAccountId,
+              adAccountName:
+                linked?.adAccountName || `Ad Account ${adAccount.adAccountId}`,
+              order: adAccount.order || 0,
+              data: fallbackData,
+            };
+          }
+
+          let data:
+            | Metric[]
+            | ReportDataAd[]
+            | ReportDataCampaign[]
+            | ReportDataGraph[] = [];
+
+          switch (section.name) {
+            case "kpis":
+              data = runtime.kpis ?? [];
+              break;
+            case "graphs":
+              data = runtime.graphs ?? [];
+              break;
+            case "ads":
+              data = runtime.ads ?? [];
+              break;
+            case "campaigns":
+              data = runtime.campaigns ?? [];
+              break;
+            default:
+              data = [];
+          }
+
+          return {
+            adAccountId: adAccount.adAccountId,
+            adAccountName: runtime.adAccountName,
+            order: adAccount.order || 0,
+            data,
+          };
+        },
+      );
 
       return {
-        ...section,
-        adAccounts: updatedAdAccounts,
+        name: section.name,
+        order: section.order || 0,
+        adAccounts,
       };
     });
   }
@@ -140,4 +254,59 @@ export class FacebookProvider implements AdsProvider {
   ): Promise<Record<string, { id: string; name: string }[]>> {
     return this.api!.getCustomMetricsForAdAccounts(accountIds);
   }
+}
+
+export function convertSectionsToScheduledConfigs(
+  sections: SectionConfig[],
+): ScheduledAdAccountConfig[] {
+  const map = new Map<string, ScheduledAdAccountConfig>();
+  const adAccountOrder: string[] = [];
+
+  for (const section of sections) {
+    for (const account of section.adAccounts) {
+      const adAccountId = account.adAccountId;
+
+      if (!map.has(adAccountId)) {
+        adAccountOrder.push(adAccountId); // Track insertion order
+        map.set(adAccountId, {
+          adAccountId,
+          kpis: emptyGroup(),
+          graphs: emptyGroup(),
+          ads: emptyGroup(),
+          campaigns: emptyGroup(),
+        });
+      }
+
+      const group = {
+        order: account.order,
+        metrics: account.metrics,
+        customMetrics: account.customMetrics ?? undefined,
+      };
+
+      const existing = map.get(adAccountId)!;
+
+      switch (section.name) {
+        case "kpis":
+          existing.kpis = group as ScheduledMetricGroup<AvailableKpiMetric>;
+          break;
+        case "graphs":
+          existing.graphs = group as ScheduledMetricGroup<AvailableGraphMetric>;
+          break;
+        case "ads":
+          existing.ads = group as ScheduledMetricGroup<AvailableAdMetric>;
+          break;
+        case "campaigns":
+          existing.campaigns =
+            group as ScheduledMetricGroup<AvailableCampaignMetric>;
+          break;
+      }
+    }
+  }
+
+  // Return ad accounts in the order they were originally added
+  return adAccountOrder.map((id) => map.get(id)!);
+}
+
+function emptyGroup(): ScheduledMetricGroup<any> {
+  return { order: 0, metrics: [] };
 }

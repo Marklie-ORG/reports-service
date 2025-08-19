@@ -18,7 +18,7 @@ import { ReportsConfigService } from "./lib/config/config.js";
 import { SchedulesController } from "./lib/controllers/SchedulesController.js";
 
 const app = new Koa();
-const logger = Log.getInstance().extend("reports-service");
+const logger = Log.getInstance();
 const config = ReportsConfigService.getInstance();
 
 const database = await Database.getInstance();
@@ -68,3 +68,268 @@ process.on("SIGINT", async () => {
   await database.orm.close();
   process.exit(0);
 });
+
+
+// const request: ReportScheduleRequest = {
+//   time: "13:03",
+//   images: {
+//     clientLogo: "",
+//     organizationLogo: "",
+//   },
+//   messages: {
+//     email: {
+//       body: "3",
+//       title: "2",
+//     },
+//     slack: "",
+//     whatsapp: "1",
+//   },
+//   timeZone: "Europe/Kiev",
+//   dayOfWeek: "Friday",
+//   frequency: "weekly",
+//   providers: [
+//     {
+//       provider: "facebook",
+//       sections: [
+//         {
+//           name: "kpis",
+//           order: 0,
+//           adAccounts: [
+//             {
+//               order: 0,
+//               metrics: [
+//                 {
+//                   name: "spend",
+//                   order: 11,
+//                 },
+//               ],
+//               adAccountId: "act_184132280559902",
+//               adAccountName: "Welvaere | Belgium",
+//               customMetrics: [
+//                 {
+//                   id: "1811736552611626",
+//                   name: "Engaged traffic",
+//                   order: 8,
+//                 },
+//               ],
+//             },
+//             {
+//               order: 0,
+//               metrics: [
+//                 {
+//                   name: "spend",
+//                   order: 11,
+//                 },
+//               ],
+//               adAccountId: "act_944264010376239",
+//               adAccountName: "Welvaere | Europe",
+//               customMetrics: [
+//                 {
+//                   id: "462417059508939",
+//                   name: "EU | Quote Request",
+//                   order: 1,
+//                 },
+//               ],
+//             },
+//             {
+//               order: 0,
+//               metrics: [
+//                 {
+//                   name: "spend",
+//                   order: 11,
+//                 },
+//               ],
+//               adAccountId: "act_571336068315404",
+//               adAccountName: "Welvaere | France",
+//               customMetrics: [
+//                 {
+//                   id: "703397075058069",
+//                   name: "Engaged traffic",
+//                   order: 2,
+//                 },
+//               ],
+//             },
+//           ],
+//         },
+//         {
+//           name: "graphs",
+//           order: 1,
+//           adAccounts: [
+//             {
+//               order: 0,
+//               metrics: [
+//                 {
+//                   name: "impressions",
+//                   order: 0,
+//                 },
+//               ],
+//               adAccountId: "act_944264010376239",
+//               adAccountName: "Welvaere | Europe",
+//               customMetrics: [
+//                 {
+//                   id: "462417059508939",
+//                   name: "EU | Quote Request",
+//                   order: 1,
+//                 },
+//               ],
+//             },
+//           ],
+//         },
+//         {
+//           name: "ads",
+//           order: 2,
+//           adAccounts: [
+//             {
+//               order: 0,
+//               metrics: [
+//                 {
+//                   name: "ad_name",
+//                   order: 9,
+//                 },
+//                 {
+//                   name: "impressions",
+//                   order: 0,
+//                 },
+//               ],
+//               adAccountId: "act_944264010376239",
+//               adAccountName: "Welvaere | Belgium",
+//               customMetrics: [
+//                 {
+//                   id: "1811736552611626",
+//                   name: "Engaged traffic",
+//                   order: 8,
+//                 },
+//               ],
+//             },
+//             {
+//               order: 0,
+//               metrics: [
+//                 {
+//                   name: "ad_name",
+//                   order: 9,
+//                 },
+//                 {
+//                   name: "impressions",
+//                   order: 0,
+//                 },
+//               ],
+//               adAccountId: "act_944264010376239",
+//               adAccountName: "Welvaere | Europe",
+//               customMetrics: [
+//                 {
+//                   id: "462417059508939",
+//                   name: "EU | Quote Request",
+//                   order: 1,
+//                 },
+//               ],
+//             },
+//             {
+//               order: 0,
+//               metrics: [
+//                 {
+//                   name: "ad_name",
+//                   order: 9,
+//                 },
+//                 {
+//                   name: "impressions",
+//                   order: 0,
+//                 },
+//               ],
+//               adAccountId: "act_944264010376239",
+//               adAccountName: "Welvaere | France",
+//               customMetrics: [
+//                 {
+//                   id: "703397075058069",
+//                   name: "Engaged traffic",
+//                   order: 2,
+//                 },
+//               ],
+//             },
+//           ],
+//         },
+//         {
+//           name: "campaigns",
+//           order: 3,
+//           adAccounts: [
+//             {
+//               order: 0,
+//               metrics: [
+//                 {
+//                   name: "add_to_cart",
+//                   order: 11,
+//                 },
+//               ],
+//               adAccountId: "act_184132280559902",
+//               adAccountName: "Welvaere | Belgium",
+//               customMetrics: [
+//                 {
+//                   id: "1811736552611626",
+//                   name: "Engaged traffic",
+//                   order: 8,
+//                 },
+//               ],
+//             },
+//             {
+//               order: 0,
+//               metrics: [
+//                 {
+//                   name: "add_to_cart",
+//                   order: 11,
+//                 },
+//               ],
+//               adAccountId: "act_944264010376239",
+//               adAccountName: "Welvaere | Europe",
+//               customMetrics: [
+//                 {
+//                   id: "462417059508939",
+//                   name: "EU | Quote Request",
+//                   order: 1,
+//                 },
+//               ],
+//             },
+//             {
+//               order: 0,
+//               metrics: [
+//                 {
+//                   name: "add_to_cart",
+//                   order: 11,
+//                 },
+//               ],
+//               adAccountId: "act_571336068315404",
+//               adAccountName: "Welvaere | France",
+//               customMetrics: [
+//                 {
+//                   id: "703397075058069",
+//                   name: "Engaged traffic",
+//                   order: 2,
+//                 },
+//               ],
+//             },
+//           ],
+//         },
+//       ],
+//     },
+//   ],
+//   clientUuid: "c5b300eb-ab4d-4db6-bae7-c81610dd9f5a",
+//   datePreset: FACEBOOK_DATE_PRESETS.LAST_7D,
+//   reportName: "Report Title",
+//   reviewRequired: false,
+//   organizationUuid: "2bc96d98-654e-41b0-a13f-22ed452d9f47",
+// };
+// const { providers, ...rest } = request;
+// const jobData: ReportJobData = {
+//   ...rest,
+//   data: providers!,
+//   scheduleUuid: "6a0262b7-457d-452c-8f3a-cc7c235dda5c",
+// };
+// await reportQueue.deleteAllScheduledJobs();
+
+// // const service = new SchedulesService();
+// // await service.scheduleReport(request);
+
+// // console.log(jobData.data[0].adAccounts[0].kpis);
+// // console.log(jobData.data[0].adAccounts[0].graphs);
+// // console.log(jobData.data[0].adAccounts[0].ads);
+// // console.log(jobData.data[0].adAccounts[0].campaigns);
+// await ReportsUtil.processScheduledReportJob(jobData);
+
