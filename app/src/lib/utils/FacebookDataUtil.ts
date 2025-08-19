@@ -180,7 +180,6 @@ export class FacebookDataUtil {
     const selectedCustomMap = new Map(
       selectedCustomMetrics.map((m) => [m.id, m.name]),
     );
-    const customMetricFound = new Set<string>();
 
     for (const campaign of campaignData) {
       aggregated.spend += Number(campaign.spend || 0);
@@ -207,16 +206,15 @@ export class FacebookDataUtil {
         aggregated.leads += this.getActionValue(campaign.actions, "lead");
 
         for (const action of campaign.actions) {
-          const type = action.action_type;
-          const value = Number(action.value ?? 0);
-
-          const match = type?.match(/^offsite_conversion\.custom\.(\d+)$/);
+          const match = action.action_type?.match(
+            /^offsite_conversion\.custom\.(\d+)$/,
+          );
           if (match) {
             const id = match[1];
             const name = selectedCustomMap.get(id);
             if (name) {
-              customMetricFound.add(name);
-              customMetricMap[name] = (customMetricMap[name] ?? 0) + value;
+              customMetricMap[name] =
+                (customMetricMap[name] ?? 0) + Number(action.value ?? 0);
             }
           }
         }
@@ -231,16 +229,7 @@ export class FacebookDataUtil {
     }
 
     const metrics: Record<string, any> = {
-      spend: aggregated.spend,
-      impressions: aggregated.impressions,
-      clicks: aggregated.clicks,
-      reach: aggregated.reach,
-      purchases: aggregated.purchases,
-      add_to_cart: aggregated.add_to_cart,
-      initiated_checkouts: aggregated.initiated_checkouts,
-      conversion_value: aggregated.conversion_value,
-      engagement: aggregated.engagement,
-
+      ...aggregated,
       cpc: aggregated.clicks > 0 ? aggregated.spend / aggregated.clicks : 0,
       ctr:
         aggregated.impressions > 0
@@ -262,20 +251,19 @@ export class FacebookDataUtil {
         aggregated.add_to_cart > 0
           ? aggregated.spend / aggregated.add_to_cart
           : 0,
+      cost_per_lead:
+        aggregated.leads > 0 ? aggregated.spend / aggregated.leads : 0,
       conversion_rate:
         aggregated.clicks > 0
           ? (aggregated.purchases / aggregated.clicks) * 100
           : 0,
-      ...(aggregated.leads > 0
-        ? {
-            leads: aggregated.leads,
-            cost_per_lead: aggregated.spend / aggregated.leads,
-          }
-        : {}),
+      ...customMetricMap,
     };
 
-    for (const [name, value] of Object.entries(customMetricMap)) {
-      metrics[name] = value;
+    for (const cm of selectedCustomMetrics) {
+      if (!(cm.name in metrics)) {
+        metrics[cm.name] = 0;
+      }
     }
 
     const normalize = (s: string) => s.trim().toLowerCase();
@@ -292,15 +280,8 @@ export class FacebookDataUtil {
       metricOrderMap.set(cm.name.trim().toLowerCase(), cm.order);
     });
 
-    // Filter and return metrics with order
     return Object.entries(metrics)
       .filter(([key]) => allowedKeys.has(normalize(key)))
-      .filter(([key]) => {
-        const isCustom = selectedCustomMetrics.some(
-          (m) => normalize(m.name) === normalize(key),
-        );
-        return !isCustom || customMetricFound.has(key);
-      })
       .map(([name, value]) => ({
         name,
         value,
@@ -422,7 +403,6 @@ export class FacebookDataUtil {
   ): Metric[] {
     if (!insight) return [];
 
-    // Create a map for custom metrics by ID
     const customMetricIdToName = new Map<string, string>();
     const customMetricOrderMap = new Map<string, number>();
 
@@ -431,13 +411,11 @@ export class FacebookDataUtil {
       customMetricOrderMap.set(cm.name, cm.order);
     });
 
-    // Calculate derived metrics
     const spend = Number(insight.spend || 0);
     const impressions = Number(insight.impressions || 0);
     const clicks = Number(insight.clicks || 0);
     const reach = Number(insight.reach || 0);
 
-    // Extract action-based metrics
     const purchases = this.getActionValue(insight.actions, "omni_purchase");
     const add_to_cart = this.getActionValue(
       insight.actions,
@@ -452,15 +430,12 @@ export class FacebookDataUtil {
       this.getActionValue(insight.actions, "post_engagement") ||
       this.getActionValue(insight.actions, "page_engagement");
 
-    // Extract monetary values
     const conversion_value = this.getActionMonetaryValue(
       insight.action_values,
       "omni_purchase",
     );
 
-    // Build metrics map with all possible values
     const metricsMap: Record<string, any> = {
-      // Direct metrics from insight
       spend,
       impressions,
       clicks,
@@ -471,8 +446,6 @@ export class FacebookDataUtil {
       leads,
       engagement,
       conversion_value,
-
-      // Derived metrics
       cpc: clicks > 0 ? spend / clicks : 0,
       ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
       cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
@@ -482,64 +455,50 @@ export class FacebookDataUtil {
       cost_per_add_to_cart: add_to_cart > 0 ? spend / add_to_cart : 0,
       cost_per_lead: leads > 0 ? spend / leads : 0,
       conversion_rate: clicks > 0 ? (purchases / clicks) * 100 : 0,
-
-      // Any other direct fields from insight
-      ...Object.fromEntries(
-        Object.entries(insight).filter(
-          ([_key, value]) =>
-            typeof value === "number" || typeof value === "string",
-        ),
-      ),
     };
 
-    // Handle custom metrics from actions
-    const foundCustomMetrics = new Set<string>();
-    if (insight.actions && customMetrics.length > 0) {
+    if (insight.actions) {
       for (const action of insight.actions) {
-        const { action_type, value } = action;
-        if (!action_type || !value) continue;
-
-        const match = action_type.match(/^offsite_conversion\.custom\.(\d+)$/);
+        const match = action.action_type?.match(
+          /^offsite_conversion\.custom\.(\d+)$/,
+        );
         if (match) {
           const id = match[1];
           const name = customMetricIdToName.get(id);
           if (name) {
-            foundCustomMetrics.add(name);
-            metricsMap[name] = (metricsMap[name] ?? 0) + Number(value);
+            metricsMap[name] =
+              (metricsMap[name] ?? 0) + Number(action.value || 0);
           }
         }
       }
     }
 
-    // Create order map for selected metrics
-    const metricOrderMap = new Map<string, number>();
-    selectedMetrics.forEach((name, index) => {
-      metricOrderMap.set(name.toLowerCase(), index);
-    });
+    for (const cm of customMetrics) {
+      if (!(cm.name in metricsMap)) {
+        metricsMap[cm.name] = 0;
+      }
+    }
 
-    // Filter and format metrics based on selected metrics and found custom metrics
     const normalizeKey = (key: string) => key.toLowerCase();
     const allowedMetrics = new Set([
       ...selectedMetrics.map(normalizeKey),
-      ...Array.from(foundCustomMetrics).map(normalizeKey),
+      ...customMetrics.map((cm) => normalizeKey(cm.name)),
     ]);
+
+    const metricOrderMap = new Map<string, number>();
+    selectedMetrics.forEach((name, index) => {
+      metricOrderMap.set(normalizeKey(name), index);
+    });
+    customMetrics.forEach((cm) => {
+      metricOrderMap.set(normalizeKey(cm.name), cm.order);
+    });
 
     return Object.entries(metricsMap)
       .filter(([key]) => allowedMetrics.has(normalizeKey(key)))
-      .filter(([key]) => {
-        // Include custom metrics only if they were found in actions
-        const isCustom = customMetrics.some(
-          (cm) => normalizeKey(cm.name) === normalizeKey(key),
-        );
-        return !isCustom || foundCustomMetrics.has(key);
-      })
       .map(([name, value]) => ({
         name,
-        value: value ?? 0,
-        order:
-          metricOrderMap.get(normalizeKey(name)) ??
-          customMetricOrderMap.get(name) ??
-          999,
+        value,
+        order: metricOrderMap.get(normalizeKey(name)) ?? 999,
       }))
       .sort((a, b) => a.order - b.order);
   }
