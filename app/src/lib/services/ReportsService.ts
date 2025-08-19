@@ -18,7 +18,20 @@ const config = ReportsConfigService.getInstance();
 
 export class ReportsService {
   async getReport(uuid: string): Promise<Report | null> {
-    return database.em.findOne(Report, { uuid });
+    const report = (await database.em.findOne(Report, { uuid })) as Report;
+    const gcs = GCSWrapper.getInstance("marklie-client-reports");
+
+    if (report.metadata) {
+      report.metadata.images.organizationLogo = report.metadata.images
+        .organizationLogo
+        ? await gcs.getSignedUrl(report.metadata.images.organizationLogo)
+        : "";
+      report.metadata.images.clientLogo = report.metadata.images.clientLogo
+        ? await gcs.getSignedUrl(report.metadata.images.clientLogo)
+        : "";
+    }
+
+    return report;
   }
 
   async getReports(organizationUuid: string | undefined): Promise<Report[]> {
@@ -36,7 +49,10 @@ export class ReportsService {
     return database.em.find(
       Report,
       { client: clientUuid },
-      { orderBy: { createdAt: 'DESC' }, populate: ["client", "schedulingOption"] },
+      {
+        orderBy: { createdAt: "DESC" },
+        populate: ["client", "schedulingOption"],
+      },
     );
   }
 
