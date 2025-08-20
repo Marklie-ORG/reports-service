@@ -184,6 +184,12 @@ export class ReportsService {
           // Apply ad account order
           adAccount.order = adAccConfig.order ?? adAccount.order;
 
+          // Apply ad account enabled state if present in request
+          const enabledFromRequest = (adAccConfig as any).enabled;
+          if (typeof enabledFromRequest === 'boolean') {
+            (adAccount as any).enabled = enabledFromRequest;
+          }
+
           // Apply metrics order inside ad account data based on section name
           const metricOrderMap = buildMetricOrderMap([
             ...(adAccConfig.metrics || []),
