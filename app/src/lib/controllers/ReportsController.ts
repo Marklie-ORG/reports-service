@@ -20,6 +20,7 @@ export class ReportsController extends Router {
     this.get("/:uuid", this.getReport.bind(this));
     this.get("/", this.getReports.bind(this));
     this.get("/client/:uuid", this.getClientReports.bind(this));
+    this.get("/pending-review/count", this.getPendingReviewCount.bind(this));
     this.post("/send-after-review", this.sendAfterReview.bind(this));
     this.put("/report-images/:uuid", this.updateReportImages.bind(this));
     this.put(
@@ -67,6 +68,15 @@ export class ReportsController extends Router {
       uuid: scheduleUuid,
     };
     ctx.status = 201;
+  }
+
+  private async getPendingReviewCount(ctx: Context) {
+    const user = ctx.state.user as User;
+    const count = await this.reportsService.getPendingReviewCount(
+      user.activeOrganization?.uuid,
+    );
+    ctx.body = { count };
+    ctx.status = 200;
   }
 
   private async updateReportImages(ctx: Context) {

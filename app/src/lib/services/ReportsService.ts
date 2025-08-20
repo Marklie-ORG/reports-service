@@ -118,6 +118,18 @@ export class ReportsService {
     await database.em.persistAndFlush(log);
   }
 
+  async getPendingReviewCount(organizationUuid: string | undefined): Promise<number> {
+    if (!organizationUuid) {
+      throw new Error("No organization Uuid");
+    }
+
+    return await database.em.count(Report, {
+      organization: organizationUuid,
+      reviewRequired: true,
+      reviewedAt: null,
+    });
+  }
+
   async updateReportImages(uuid: string, images: ReportImages) {
     const report = await database.em.findOne(Report, { uuid });
 
