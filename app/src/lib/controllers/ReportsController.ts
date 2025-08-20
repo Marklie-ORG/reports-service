@@ -28,6 +28,7 @@ export class ReportsController extends Router {
       "/report-data/:uuid",
       this.updateReportData.bind(this),
     );
+    this.put("/report-messages/:uuid", this.updateReportMessages.bind(this));
   }
 
   private async getReport(ctx: Context) {
@@ -120,6 +121,18 @@ export class ReportsController extends Router {
 
     ctx.body = {
       message: "Report metrics selections updated successfully",
+    };
+    ctx.status = 200;
+  }
+
+  private async updateReportMessages(ctx: Context) {
+    const uuid = ctx.params.uuid as string;
+    const messages = ctx.request.body as any;
+
+    await this.reportsService.updateReportMessages(uuid, messages);
+
+    ctx.body = {
+      message: "Report messages updated successfully",
     };
     ctx.status = 200;
   }

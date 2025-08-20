@@ -152,6 +152,22 @@ export class ReportsService {
     await database.em.persistAndFlush(report);
   }
 
+  async updateReportMessages(uuid: string, messages: any) {
+    const report = await database.em.findOne(Report, { uuid });
+
+    if (!report) {
+      throw new Error(`Report ${uuid} not found`);
+    }
+
+    const existingMetadata = (report.metadata || {}) as Record<string, any>;
+    report.metadata = {
+      ...existingMetadata,
+      messages,
+    } as unknown as Record<string, any>;
+
+    await database.em.persistAndFlush(report);
+  }
+
   async updateReportTitle(uuid: string, reportName: string) {
     const report = await database.em.findOne(Report, { uuid });
 
