@@ -137,7 +137,18 @@ export class ReportsService {
       throw new Error(`Report ${uuid} not found`);
     }
 
-    report.metadata!.images = images;
+    const gcs = GCSWrapper.getInstance("marklie-client-reports");
+
+    report.metadata!.images = {
+      organizationLogo: images.organizationLogo
+      ? await gcs.getSignedUrl(images.organizationLogo)
+      : "",
+      clientLogo: images.clientLogo
+      ? await gcs.getSignedUrl(images.clientLogo)
+      : "",
+      organizationLogoGsUri: images.organizationLogo,
+      clientLogoGsUri: images.clientLogo,
+    };
     await database.em.persistAndFlush(report);
   }
 
