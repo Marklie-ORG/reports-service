@@ -172,6 +172,12 @@ export class ReportsService {
         // Apply section order
         section.order = sectionConfig.order ?? section.order;
 
+        // Apply section enabled state if present in request
+        const sectionEnabled = (sectionConfig as any).enabled;
+        if (typeof sectionEnabled === 'boolean') {
+          (section as any).enabled = sectionEnabled;
+        }
+
         // Build ad account config map for this section
         const adAccountConfigById = new Map(
           sectionConfig.adAccounts.map((a) => [a.adAccountId, a]),
