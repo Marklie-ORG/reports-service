@@ -23,6 +23,7 @@ export class ReportsController extends Router {
     this.get("/pending-review/count", this.getPendingReviewCount.bind(this));
     this.post("/send-after-review", this.sendAfterReview.bind(this));
     this.put("/report-images/:uuid", this.updateReportImages.bind(this));
+    this.put("/report-title/:uuid", this.updateReportTitle.bind(this));
     this.put(
       "/report-data/:uuid",
       this.updateReportData.bind(this),
@@ -87,6 +88,22 @@ export class ReportsController extends Router {
 
     ctx.body = {
       message: "Report images updated successfully",
+    };
+    ctx.status = 200;
+  }
+
+  private async updateReportTitle(ctx: Context) {
+    const { reportName } = ctx.request.body as { reportName: string };
+    const uuid = ctx.params.uuid as string;
+
+    if (typeof reportName !== "string") {
+      throw MarklieError.badRequest("Invalid reportName provided", undefined, "reports-service");
+    }
+
+    await this.reportsService.updateReportTitle(uuid, reportName);
+
+    ctx.body = {
+      message: "Report title updated successfully",
     };
     ctx.status = 200;
   }
