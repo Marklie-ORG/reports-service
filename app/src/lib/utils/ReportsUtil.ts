@@ -154,13 +154,21 @@ export class ReportsUtil {
   ): Promise<Report> {
     const gcs = GCSWrapper.getInstance("marklie-client-reports");
 
+    let newImages = {
+      organizationLogo: "",
+      clientLogo: "",
+      organizationLogoGsUri: "",
+      clientLogoGsUri: "",
+    };
     if (data.images) {
-      data.images.organizationLogo = data.images.organizationLogo
+      newImages.organizationLogo = data.images.organizationLogo
         ? await gcs.getSignedUrl(data.images.organizationLogo)
         : "";
-      data.images.clientLogo = data.images.clientLogo
+      newImages.clientLogo = data.images.clientLogo
         ? await gcs.getSignedUrl(data.images.clientLogo)
         : "";
+      newImages.organizationLogoGsUri = data.images.organizationLogo;
+      newImages.clientLogoGsUri = data.images.clientLogo;
     }
     const report = database.em.create(Report, {
       organization: client.organization,
@@ -177,7 +185,7 @@ export class ReportsUtil {
         aiGeneratedContent: "",
         userReportDescription: "",
         messages: data.messages,
-        images: data.images,
+        images: newImages,
         reportName: data.reportName,
       },
     });
@@ -253,6 +261,9 @@ export class ReportsUtil {
   }
 
   public static async generateReportPdf(reportUuid: string): Promise<Buffer> {
+
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
     const isProduction = process.env.ENVIRONMENT === "production";
     const baseUrl = isProduction
       ? "https://marklie.com"
@@ -266,8 +277,8 @@ export class ReportsUtil {
         waitUntil: "domcontentloaded",
         timeout: 120000,
       });
-
-      await page.waitForSelector(".graph-card", { timeout: 60000 });
+      
+      await sleep(20000);
 
       const dashboardHeight = await page.evaluate(() => {
         const el = document.querySelector(".report-container");
