@@ -278,7 +278,11 @@ export class ReportsUtil {
         timeout: 120000,
       });
       
-      await sleep(20000);
+      try {
+        await page.waitForSelector(".graph-card", { timeout: 20000 });
+      } catch (e) {
+        console.log("Failed to wait for graph card to load:", e);
+      }
 
       const dashboardHeight = await page.evaluate(() => {
         const el = document.querySelector(".report-container");
