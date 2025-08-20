@@ -122,7 +122,7 @@ export class SchedulesController extends Router {
     await this.schedulesService.activateSchedulingOptions(body.uuids);
 
     ctx.body = {
-      message: "Report schedule deleted successfully",
+      message: "Report schedule activated successfully",
     };
     ctx.status = 200;
   }
