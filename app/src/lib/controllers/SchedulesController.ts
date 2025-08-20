@@ -23,7 +23,7 @@ export class SchedulesController extends Router {
     
     this.put("/stop", this.stopSchedulingOptions.bind(this));
     this.put("/delete", this.deleteSchedulingOption.bind(this));
-    this.put("/activate", this.activateSchedulingOption.bind(this));
+    this.put("/activate", this.activateSchedulingOptions.bind(this));
 
     this.get("/:uuid", this.getSchedulingOption.bind(this));
     this.put("/:uuid", this.updateSchedulingOption.bind(this));
@@ -116,7 +116,7 @@ export class SchedulesController extends Router {
     ctx.status = 200;
   }
 
-  private async activateSchedulingOption(ctx: Context) {
+  private async activateSchedulingOptions(ctx: Context) {
     const body = ctx.request.body as ScheduleBulkActionRequest;
 
     await this.schedulesService.activateSchedulingOptions(body.uuids);
