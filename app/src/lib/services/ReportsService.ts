@@ -185,13 +185,23 @@ export class ReportsService {
           adAccount.order = adAccConfig.order ?? adAccount.order;
 
           // Apply metrics order inside ad account data based on section name
-          const metricOrderMap = buildMetricOrderMap(adAccConfig.metrics || []);
+          const metricOrderMap = buildMetricOrderMap([
+            ...(adAccConfig.metrics || []),
+            ...((adAccConfig.customMetrics || []).map(cm => ({ name: cm.name, order: cm.order })))
+          ]);
+
+          // Build set of enabled metric names from provider config (standard + custom)
+          const enabledMetricNames = new Set<string>([
+            ...((adAccConfig.metrics || []).map(m => m.name)),
+            ...((adAccConfig.customMetrics || []).map(cm => cm.name)),
+          ]);
 
           if (section.name === "kpis") {
             const data = adAccount.data as KpiAdAccountData;
             for (const metric of data) {
               const ord = metricOrderMap.get(metric.name);
               if (ord !== undefined) metric.order = ord;
+              (metric as any).enabled = enabledMetricNames.has(metric.name);
             }
             sortByOrder(data);
           } else if (section.name === "graphs") {
@@ -200,6 +210,7 @@ export class ReportsService {
               for (const point of graph.data) {
                 const ord = metricOrderMap.get(point.name);
                 if (ord !== undefined) point.order = ord;
+                (point as any).enabled = enabledMetricNames.has(point.name);
               }
               sortByOrder(graph.data);
             }
@@ -209,6 +220,7 @@ export class ReportsService {
               for (const point of creative.data) {
                 const ord = metricOrderMap.get(point.name);
                 if (ord !== undefined) point.order = ord;
+                (point as any).enabled = enabledMetricNames.has(point.name);
               }
               sortByOrder(creative.data);
             }
@@ -218,6 +230,7 @@ export class ReportsService {
               for (const point of row.data) {
                 const ord = metricOrderMap.get(point.name);
                 if (ord !== undefined) point.order = ord;
+                (point as any).enabled = enabledMetricNames.has(point.name);
               }
               sortByOrder(row.data);
             }
@@ -268,6 +281,7 @@ export type ReportData = ProviderReportResponse[]
     name: string
     order: number
     value: number
+    enabled?: boolean
   }
 
   // graphs
@@ -283,6 +297,7 @@ export type ReportData = ProviderReportResponse[]
     name: string
     order: number
     value: number
+    enabled?: boolean
   }
 
   // ads
@@ -301,6 +316,7 @@ export type ReportData = ProviderReportResponse[]
     name: string
     order: number
     value: number
+    enabled?: boolean
   }
 
   // campaigns
@@ -316,6 +332,7 @@ export type ReportData = ProviderReportResponse[]
     name: string
     order: number
     value: number
+    enabled?: boolean
   }
 
   export type SectionKey = 'kpis' | 'graphs' | 'ads' | 'campaigns';
