@@ -261,6 +261,9 @@ export class ReportsUtil {
   }
 
   public static async generateReportPdf(reportUuid: string): Promise<Buffer> {
+
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
     const isProduction = process.env.ENVIRONMENT === "production";
     const baseUrl = isProduction
       ? "https://marklie.com"
@@ -274,8 +277,8 @@ export class ReportsUtil {
         waitUntil: "domcontentloaded",
         timeout: 120000,
       });
-
-      await page.waitForSelector(".graph-card", { timeout: 60000 });
+      
+      await sleep(20000);
 
       const dashboardHeight = await page.evaluate(() => {
         const el = document.querySelector(".report-container");

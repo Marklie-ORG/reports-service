@@ -63,7 +63,7 @@ export class ReportsController extends Router {
     const body = ctx.request.body as SendAfterReviewRequest;
 
     const scheduleUuid: string | void =
-      await this.reportsService.sendReportAfterReview(body.reportUuid);
+      await this.reportsService.sendReportAfterReview(body.reportUuid, body.sendAt);
 
     ctx.body = {
       message: "Report was saved and sent to the client",

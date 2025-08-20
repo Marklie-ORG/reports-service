@@ -78,6 +78,7 @@ export class ReportsService {
       organizationUuid: report.organization.uuid,
       reportUuid: report.uuid,
       messages: report.metadata?.messages,
+      reportUrl: report.gcsUrl,
     };
 
     if (sendAt) {
