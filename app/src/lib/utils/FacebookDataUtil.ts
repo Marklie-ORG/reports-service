@@ -67,6 +67,11 @@ export class FacebookDataUtil {
       ),
     ];
 
+    const resolvedSelectedAds = this.resolveMetricsFromMap(
+      selectedAds,
+      AVAILABLE_ADS_METRICS,
+    );
+
     if (allCustomMetrics.length > 0) {
       allMetrics.push("actions", "action_values");
     }
@@ -91,8 +96,6 @@ export class FacebookDataUtil {
       allCustomMetrics,
     );
 
-    console.log(graphs);
-
     const campaigns = this.normalizeCampaigns(
       insights,
       selectedCampaigns,
@@ -102,7 +105,7 @@ export class FacebookDataUtil {
     let ads: ReportDataAd[] = [];
     if (selectedAds.length > 0) {
       const adsInsights = await api.getAdInsightsWithThumbnails(
-        selectedAds,
+        resolvedSelectedAds,
         datePreset,
       );
       ads = await this.processAds(
