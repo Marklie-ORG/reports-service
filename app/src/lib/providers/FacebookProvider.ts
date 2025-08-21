@@ -102,7 +102,7 @@ export class FacebookProvider implements AdsProvider {
     // Transform to new ReportDataSection structure
     return sections.map((section): ReportDataSection => {
       const adAccounts: ReportDataSectionAdAccount[] = section.adAccounts.map(
-        (adAccount: { adAccountId: string; order: any }) => {
+        (adAccount: { adAccountId: string; order: any, currency: string }) => {
           const runtime = dataMap.get(adAccount.adAccountId);
           const linked = linkedAccounts.find(
             (acc) => acc.adAccountId === adAccount.adAccountId,
@@ -227,6 +227,7 @@ export class FacebookProvider implements AdsProvider {
             adAccountName: runtime.adAccountName,
             order: adAccount.order || 0,
             data,
+            currency: adAccount.currency,
           };
         },
       );
