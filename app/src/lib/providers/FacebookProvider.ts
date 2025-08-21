@@ -196,6 +196,7 @@ export class FacebookProvider implements AdsProvider {
                 linked?.adAccountName || `Ad Account ${adAccount.adAccountId}`,
               order: adAccount.order || 0,
               data: fallbackData,
+              currency: adAccount.currency,
             };
           }
 
