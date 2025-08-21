@@ -23,7 +23,7 @@ specifiers:
   koa-bodyparser: ^4.3.0
   koa-json: ^2.0.2
   koa-router: ^13.0.1
-  marklie-ts-core: 1.4.38
+  marklie-ts-core: file:../../markly-ts-core/marklie-ts-core-1.4.48.tgz
   p-limit: ^6.2.0
   prettier: 3.4.2
   puppeteer: ^24.6.1
@@ -41,7 +41,7 @@ dependencies:
   dotenv: 16.6.1
   ioredis: 5.6.1
   jsonwebtoken: 9.0.2
-  marklie-ts-core: 1.4.38_@types+node@22.16.5
+  marklie-ts-core: file:../../markly-ts-core/marklie-ts-core-1.4.48.tgz_@types+node@22.16.5
   p-limit: 6.2.0
   puppeteer: 24.14.0_typescript@5.8.3
   winston: 3.17.0
@@ -3157,42 +3157,6 @@ packages:
       semver: 7.7.2
     dev: true
 
-  /marklie-ts-core/1.4.38_@types+node@22.16.5:
-    resolution: {integrity: sha512-2Df025OaO3T4boe3Kgj/6dHXTCRXDgEVtweKsgXMuGy6b/MABVtGPan/zcXgnTJiDEf8Qog7lUpDWItEGtgStQ==}
-    dependencies:
-      '@google-cloud/pubsub': 4.11.0
-      '@google-cloud/secret-manager': 6.1.0
-      '@google-cloud/storage': 7.16.0
-      '@mikro-orm/core': 6.4.16
-      '@mikro-orm/migrations': 6.4.16_dmfxx4hfxh7dbfsgi75c4hacgm
-      '@mikro-orm/postgresql': 6.4.16_@mikro-orm+core@6.4.16
-      '@mikro-orm/reflection': 6.4.16_@mikro-orm+core@6.4.16
-      '@sendgrid/mail': 8.1.5
-      axios: 1.10.0
-      bcryptjs: 3.0.2
-      bullmq: 5.56.4
-      ioredis: 5.6.1
-      jsonwebtoken: 9.0.2
-      path-to-regexp: 8.2.0
-      uuid: 11.1.0
-      winston: 3.17.0
-      zod: 4.0.5
-    transitivePeerDependencies:
-      - '@types/node'
-      - better-sqlite3
-      - debug
-      - encoding
-      - libsql
-      - mariadb
-      - mysql
-      - mysql2
-      - pg
-      - pg-native
-      - sqlite3
-      - supports-color
-      - tedious
-    dev: false
-
   /math-intrinsics/1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
@@ -4606,4 +4570,43 @@ packages:
 
   /zod/4.0.5:
     resolution: {integrity: sha512-/5UuuRPStvHXu7RS+gmvRf4NXrNxpSllGwDnCBcJZtQsKrviYXm54yDGV2KYNLT5kq0lHGcl7lqWJLgSaG+tgA==}
+    dev: false
+
+  file:../../markly-ts-core/marklie-ts-core-1.4.48.tgz_@types+node@22.16.5:
+    resolution: {integrity: sha512-HtW7W8ygF+czyFAhziN6CxuF5ObiZgwPzjjQLceNLPh4Nra5b/sL6cSZPgHbZG36ZHcBFjUvpJzSjYfHhbGx3Q==, tarball: file:../../markly-ts-core/marklie-ts-core-1.4.48.tgz}
+    id: file:../../markly-ts-core/marklie-ts-core-1.4.48.tgz
+    name: marklie-ts-core
+    version: 1.4.48
+    dependencies:
+      '@google-cloud/pubsub': 4.11.0
+      '@google-cloud/secret-manager': 6.1.0
+      '@google-cloud/storage': 7.16.0
+      '@mikro-orm/core': 6.4.16
+      '@mikro-orm/migrations': 6.4.16_dmfxx4hfxh7dbfsgi75c4hacgm
+      '@mikro-orm/postgresql': 6.4.16_@mikro-orm+core@6.4.16
+      '@mikro-orm/reflection': 6.4.16_@mikro-orm+core@6.4.16
+      '@sendgrid/mail': 8.1.5
+      axios: 1.10.0
+      bcryptjs: 3.0.2
+      bullmq: 5.56.4
+      ioredis: 5.6.1
+      jsonwebtoken: 9.0.2
+      path-to-regexp: 8.2.0
+      uuid: 11.1.0
+      winston: 3.17.0
+      zod: 4.0.5
+    transitivePeerDependencies:
+      - '@types/node'
+      - better-sqlite3
+      - debug
+      - encoding
+      - libsql
+      - mariadb
+      - mysql
+      - mysql2
+      - pg
+      - pg-native
+      - sqlite3
+      - supports-color
+      - tedious
     dev: false
