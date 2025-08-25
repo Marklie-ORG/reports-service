@@ -19,11 +19,24 @@ const config = ReportsConfigService.getInstance();
 
 export class ReportsService {
   async getReport(uuid: string): Promise<Report | null> {
-    return await database.em.findOne(
+    const report = await database.em.findOne(
       Report,
       { uuid },
       { populate: ["client", "organization", "schedulingOption"] },
     );
+    const gcs = GCSWrapper.getInstance("marklie-client-reports");
+
+    if (report?.metadata) {
+      report.metadata.images.organizationLogo = report.metadata.images
+        .organizationLogoGsUri
+        ? await gcs.getSignedUrl(report.metadata.images.organizationLogoGsUri)
+        : "";
+      report.metadata.images.clientLogo = report.metadata.images.clientLogoGsUri
+        ? await gcs.getSignedUrl(report.metadata.images.clientLogoGsUri)
+        : "";
+    }
+
+    return report;
   }
 
   async getReports(organizationUuid: string | undefined): Promise<Report[]> {
@@ -119,7 +132,9 @@ export class ReportsService {
     await database.em.persistAndFlush(log);
   }
 
-  async getPendingReviewCount(organizationUuid: string | undefined): Promise<number> {
+  async getPendingReviewCount(
+    organizationUuid: string | undefined,
+  ): Promise<number> {
     if (!organizationUuid) {
       throw new Error("No organization Uuid");
     }
@@ -142,47 +157,60 @@ export class ReportsService {
 
     report.metadata!.images = {
       organizationLogo: images.organizationLogo
-      ? await gcs.getSignedUrl(images.organizationLogo)
-      : "",
+        ? await gcs.getSignedUrl(images.organizationLogo)
+        : "",
       clientLogo: images.clientLogo
-      ? await gcs.getSignedUrl(images.clientLogo)
-      : "",
+        ? await gcs.getSignedUrl(images.clientLogo)
+        : "",
       organizationLogoGsUri: images.organizationLogo,
       clientLogoGsUri: images.clientLogo,
     };
     await database.em.persistAndFlush(report);
   }
 
-  async updateReportMessages(uuid: string, messages: any) {
-    const report = await database.em.findOne(Report, { uuid });
+  async updateReportMetadata(
+    uuid: string,
+    patch: Partial<Record<string, any>>,
+  ): Promise<Report> {
+    const em = database.em.fork({ clear: true });
 
-    if (!report) {
-      throw new Error(`Report ${uuid} not found`);
-    }
+    return em.transactional(async (tem) => {
+      const report = await tem.findOne(Report, { uuid });
+      if (!report) throw new Error(`Report ${uuid} not found`);
 
-    const existingMetadata = (report.metadata || {}) as Record<string, any>;
-    report.metadata = {
-      ...existingMetadata,
-      messages,
-    } as unknown as Record<string, any>;
+      const current: Record<string, any> = (report.metadata ?? {}) as Record<
+        string,
+        any
+      >;
+      report.metadata = this.deepMerge({ ...current }, patch);
+      await tem.persistAndFlush(report);
 
-    await database.em.persistAndFlush(report);
+      return tem.findOneOrFail(Report, { uuid }, { refresh: true });
+    });
   }
 
-  async updateReportTitle(uuid: string, reportName: string) {
-    const report = await database.em.findOne(Report, { uuid });
-
-    if (!report) {
-      throw new Error(`Report ${uuid} not found`);
+  private deepMerge<T extends object>(target: T, patch: Partial<T>): T {
+    for (const [k, v] of Object.entries(patch)) {
+      const key = k as keyof T;
+      const tv = (target as any)[key];
+      if (this.isPlainObject(tv) && this.isPlainObject(v)) {
+        (target as any)[key] = this.deepMerge(
+          { ...(tv as object) },
+          v as object,
+        );
+      } else if (v !== undefined) {
+        (target as any)[key] = v;
+      }
     }
+    return target;
+  }
 
-    const existingMetadata = (report.metadata || {}) as Record<string, any>;
-    report.metadata = {
-      ...existingMetadata,
-      reportName,
-    } as unknown as Record<string, any>;
-
-    await database.em.persistAndFlush(report);
+  isPlainObject(value: unknown): value is Record<string, unknown> {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      Object.getPrototypeOf(value) === Object.prototype
+    );
   }
 
   public async updateReportData(
@@ -233,13 +261,8 @@ export class ReportsService {
 
         section.order = sectionConfig.order ?? section.order;
 
-        // Apply section enabled state if present in request
-        const sectionEnabled = (sectionConfig as any).enabled;
-        if (typeof sectionEnabled === 'boolean') {
-          (section as any).enabled = sectionEnabled;
-        }
+        section.enabled = sectionConfig.enabled;
 
-        // Build ad account config map for this section
         const adAccountConfigById = new Map(
           sectionConfig.adAccounts.map((a) => [a.adAccountId, a]),
         );
@@ -250,22 +273,19 @@ export class ReportsService {
 
           adAccount.order = adAccConfig.order ?? adAccount.order;
 
-          // Apply ad account enabled state if present in request
-          const enabledFromRequest = (adAccConfig as any).enabled;
-          if (typeof enabledFromRequest === 'boolean') {
-            (adAccount as any).enabled = enabledFromRequest;
-          }
+          adAccount.enabled = adAccConfig.enabled;
 
-          // Apply metrics order inside ad account data based on section name
           const metricOrderMap = buildMetricOrderMap([
             ...(adAccConfig.metrics || []),
-            ...((adAccConfig.customMetrics || []).map(cm => ({ name: cm.name, order: cm.order })))
+            ...(adAccConfig.customMetrics || []).map((cm) => ({
+              name: cm.name,
+              order: cm.order,
+            })),
           ]);
 
-          // Build set of enabled metric names from provider config (standard + custom)
           const enabledMetricNames = new Set<string>([
-            ...((adAccConfig.metrics || []).map(m => m.name)),
-            ...((adAccConfig.customMetrics || []).map(cm => cm.name)),
+            ...(adAccConfig.metrics || []).map((m) => m.name),
+            ...(adAccConfig.customMetrics || []).map((cm) => cm.name),
           ]);
 
           if (section.name === "kpis") {
@@ -273,7 +293,7 @@ export class ReportsService {
             for (const metric of data) {
               const ord = metricOrderMap.get(metric.name);
               if (ord !== undefined) metric.order = ord;
-              (metric as any).enabled = enabledMetricNames.has(metric.name);
+              metric.enabled = enabledMetricNames.has(metric.name);
             }
             sortByOrder(data);
           } else if (section.name === "graphs") {
@@ -282,7 +302,7 @@ export class ReportsService {
               for (const point of graph.data) {
                 const ord = metricOrderMap.get(point.name);
                 if (ord !== undefined) point.order = ord;
-                (point as any).enabled = enabledMetricNames.has(point.name);
+                point.enabled = enabledMetricNames.has(point.name);
               }
               sortByOrder(graph.data);
             }
@@ -292,7 +312,7 @@ export class ReportsService {
               for (const point of creative.data) {
                 const ord = metricOrderMap.get(point.name);
                 if (ord !== undefined) point.order = ord;
-                (point as any).enabled = enabledMetricNames.has(point.name);
+                point.enabled = enabledMetricNames.has(point.name);
               }
               sortByOrder(creative.data);
             }
@@ -302,20 +322,18 @@ export class ReportsService {
               for (const point of row.data) {
                 const ord = metricOrderMap.get(point.name);
                 if (ord !== undefined) point.order = ord;
-                (point as any).enabled = enabledMetricNames.has(point.name);
+                point.enabled = enabledMetricNames.has(point.name);
               }
               sortByOrder(row.data);
             }
           }
         }
-
         sortByOrder(section.adAccounts);
       }
-
       sortByOrder(providerReport.sections);
     }
 
-    report.data = reportData as unknown as Record<string, any>;
+    report.data = reportData;
 
     await database.em.persistAndFlush(report);
   }

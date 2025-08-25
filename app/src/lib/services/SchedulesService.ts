@@ -178,6 +178,7 @@ export class SchedulesService {
           clientLogo: "",
           organizationLogo: "",
         },
+        //todo: remove unknown
       } as unknown as SchedulingOptionWithImages;
     }
 
@@ -194,6 +195,7 @@ export class SchedulesService {
         clientLogo,
         organizationLogo,
       },
+      //todo: remove unknown
     } as unknown as SchedulingOptionWithImages;
   }
 

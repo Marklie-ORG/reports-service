@@ -60,7 +60,10 @@ export class ReportsController extends Router {
     const body = ctx.request.body as SendAfterReviewRequest;
 
     const scheduleUuid: string | void =
-      await this.reportsService.sendReportAfterReview(body.reportUuid, body.sendAt);
+      await this.reportsService.sendReportAfterReview(
+        body.reportUuid,
+        body.sendAt,
+      );
 
     ctx.body = {
       message: "Report was saved and sent to the client",
@@ -94,11 +97,7 @@ export class ReportsController extends Router {
     const { reportName } = ctx.request.body as { reportName: string };
     const uuid = ctx.params.uuid as string;
 
-    if (typeof reportName !== "string") {
-      throw MarklieError.badRequest("Invalid reportName provided", undefined, "reports-service");
-    }
-
-    await this.reportsService.updateReportTitle(uuid, reportName);
+    await this.reportsService.updateReportMetadata(uuid, { reportName });
 
     ctx.body = {
       message: "Report title updated successfully",
@@ -123,7 +122,7 @@ export class ReportsController extends Router {
     const uuid = ctx.params.uuid as string;
     const messages = ctx.request.body as any;
 
-    await this.reportsService.updateReportMessages(uuid, messages);
+    await this.reportsService.updateReportMetadata(uuid, { messages });
 
     ctx.body = {
       message: "Report messages updated successfully",
