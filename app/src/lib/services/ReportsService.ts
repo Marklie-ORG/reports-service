@@ -78,6 +78,7 @@ export class ReportsService {
       organizationUuid: report.organization.uuid,
       reportUuid: report.uuid,
       messages: report.metadata?.messages,
+      reportUrl: report.gcsUrl,
     };
 
     if (sendAt) {
@@ -118,6 +119,18 @@ export class ReportsService {
     await database.em.persistAndFlush(log);
   }
 
+  async getPendingReviewCount(organizationUuid: string | undefined): Promise<number> {
+    if (!organizationUuid) {
+      throw new Error("No organization Uuid");
+    }
+
+    return await database.em.count(Report, {
+      organization: organizationUuid,
+      reviewRequired: true,
+      reviewedAt: null,
+    });
+  }
+
   async updateReportImages(uuid: string, images: ReportImages) {
     const report = await database.em.findOne(Report, { uuid });
 
@@ -125,7 +138,50 @@ export class ReportsService {
       throw new Error(`Report ${uuid} not found`);
     }
 
-    report.metadata!.images = images;
+    const gcs = GCSWrapper.getInstance("marklie-client-reports");
+
+    report.metadata!.images = {
+      organizationLogo: images.organizationLogo
+      ? await gcs.getSignedUrl(images.organizationLogo)
+      : "",
+      clientLogo: images.clientLogo
+      ? await gcs.getSignedUrl(images.clientLogo)
+      : "",
+      organizationLogoGsUri: images.organizationLogo,
+      clientLogoGsUri: images.clientLogo,
+    };
+    await database.em.persistAndFlush(report);
+  }
+
+  async updateReportMessages(uuid: string, messages: any) {
+    const report = await database.em.findOne(Report, { uuid });
+
+    if (!report) {
+      throw new Error(`Report ${uuid} not found`);
+    }
+
+    const existingMetadata = (report.metadata || {}) as Record<string, any>;
+    report.metadata = {
+      ...existingMetadata,
+      messages,
+    } as unknown as Record<string, any>;
+
+    await database.em.persistAndFlush(report);
+  }
+
+  async updateReportTitle(uuid: string, reportName: string) {
+    const report = await database.em.findOne(Report, { uuid });
+
+    if (!report) {
+      throw new Error(`Report ${uuid} not found`);
+    }
+
+    const existingMetadata = (report.metadata || {}) as Record<string, any>;
+    report.metadata = {
+      ...existingMetadata,
+      reportName,
+    } as unknown as Record<string, any>;
+
     await database.em.persistAndFlush(report);
   }
 
@@ -177,6 +233,13 @@ export class ReportsService {
 
         section.order = sectionConfig.order ?? section.order;
 
+        // Apply section enabled state if present in request
+        const sectionEnabled = (sectionConfig as any).enabled;
+        if (typeof sectionEnabled === 'boolean') {
+          (section as any).enabled = sectionEnabled;
+        }
+
+        // Build ad account config map for this section
         const adAccountConfigById = new Map(
           sectionConfig.adAccounts.map((a) => [a.adAccountId, a]),
         );
@@ -187,13 +250,30 @@ export class ReportsService {
 
           adAccount.order = adAccConfig.order ?? adAccount.order;
 
-          const metricOrderMap = buildMetricOrderMap(adAccConfig.metrics || []);
+          // Apply ad account enabled state if present in request
+          const enabledFromRequest = (adAccConfig as any).enabled;
+          if (typeof enabledFromRequest === 'boolean') {
+            (adAccount as any).enabled = enabledFromRequest;
+          }
+
+          // Apply metrics order inside ad account data based on section name
+          const metricOrderMap = buildMetricOrderMap([
+            ...(adAccConfig.metrics || []),
+            ...((adAccConfig.customMetrics || []).map(cm => ({ name: cm.name, order: cm.order })))
+          ]);
+
+          // Build set of enabled metric names from provider config (standard + custom)
+          const enabledMetricNames = new Set<string>([
+            ...((adAccConfig.metrics || []).map(m => m.name)),
+            ...((adAccConfig.customMetrics || []).map(cm => cm.name)),
+          ]);
 
           if (section.name === "kpis") {
             const data = adAccount.data;
             for (const metric of data) {
               const ord = metricOrderMap.get(metric.name);
               if (ord !== undefined) metric.order = ord;
+              (metric as any).enabled = enabledMetricNames.has(metric.name);
             }
             sortByOrder(data);
           } else if (section.name === "graphs") {
@@ -202,6 +282,7 @@ export class ReportsService {
               for (const point of graph.data) {
                 const ord = metricOrderMap.get(point.name);
                 if (ord !== undefined) point.order = ord;
+                (point as any).enabled = enabledMetricNames.has(point.name);
               }
               sortByOrder(graph.data);
             }
@@ -211,6 +292,7 @@ export class ReportsService {
               for (const point of creative.data) {
                 const ord = metricOrderMap.get(point.name);
                 if (ord !== undefined) point.order = ord;
+                (point as any).enabled = enabledMetricNames.has(point.name);
               }
               sortByOrder(creative.data);
             }
@@ -220,6 +302,7 @@ export class ReportsService {
               for (const point of row.data) {
                 const ord = metricOrderMap.get(point.name);
                 if (ord !== undefined) point.order = ord;
+                (point as any).enabled = enabledMetricNames.has(point.name);
               }
               sortByOrder(row.data);
             }

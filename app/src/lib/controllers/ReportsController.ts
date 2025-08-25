@@ -20,9 +20,12 @@ export class ReportsController extends Router {
     this.get("/:uuid", this.getReport.bind(this));
     this.get("/", this.getReports.bind(this));
     this.get("/client/:uuid", this.getClientReports.bind(this));
+    this.get("/pending-review/count", this.getPendingReviewCount.bind(this));
     this.post("/send-after-review", this.sendAfterReview.bind(this));
     this.put("/report-images/:uuid", this.updateReportImages.bind(this));
     this.put("/report-data/:uuid", this.updateReportData.bind(this));
+    this.put("/report-title/:uuid", this.updateReportTitle.bind(this));
+    this.put("/report-messages/:uuid", this.updateReportMessages.bind(this));
   }
 
   private async getReport(ctx: Context) {
@@ -57,13 +60,22 @@ export class ReportsController extends Router {
     const body = ctx.request.body as SendAfterReviewRequest;
 
     const scheduleUuid: string | void =
-      await this.reportsService.sendReportAfterReview(body.reportUuid);
+      await this.reportsService.sendReportAfterReview(body.reportUuid, body.sendAt);
 
     ctx.body = {
       message: "Report was saved and sent to the client",
       uuid: scheduleUuid,
     };
     ctx.status = 201;
+  }
+
+  private async getPendingReviewCount(ctx: Context) {
+    const user = ctx.state.user as User;
+    const count = await this.reportsService.getPendingReviewCount(
+      user.activeOrganization?.uuid,
+    );
+    ctx.body = { count };
+    ctx.status = 200;
   }
 
   private async updateReportImages(ctx: Context) {
@@ -78,6 +90,22 @@ export class ReportsController extends Router {
     ctx.status = 200;
   }
 
+  private async updateReportTitle(ctx: Context) {
+    const { reportName } = ctx.request.body as { reportName: string };
+    const uuid = ctx.params.uuid as string;
+
+    if (typeof reportName !== "string") {
+      throw MarklieError.badRequest("Invalid reportName provided", undefined, "reports-service");
+    }
+
+    await this.reportsService.updateReportTitle(uuid, reportName);
+
+    ctx.body = {
+      message: "Report title updated successfully",
+    };
+    ctx.status = 200;
+  }
+
   private async updateReportData(ctx: Context) {
     const providers: ScheduledProviderConfig[] = ctx.request
       .body as ScheduledProviderConfig[];
@@ -87,6 +115,18 @@ export class ReportsController extends Router {
 
     ctx.body = {
       message: "Report metrics selections updated successfully",
+    };
+    ctx.status = 200;
+  }
+
+  private async updateReportMessages(ctx: Context) {
+    const uuid = ctx.params.uuid as string;
+    const messages = ctx.request.body as any;
+
+    await this.reportsService.updateReportMessages(uuid, messages);
+
+    ctx.body = {
+      message: "Report messages updated successfully",
     };
     ctx.status = 200;
   }
