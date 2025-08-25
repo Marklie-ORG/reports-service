@@ -129,14 +129,17 @@ export class ReportsService {
     await database.em.persistAndFlush(report);
   }
 
-  public async updateReportData(uuid: string, providers: ScheduledProviderConfig[]) {
+  public async updateReportData(
+    uuid: string,
+    providers: ScheduledProviderConfig[],
+  ) {
     const report = (await database.em.findOne(Report, { uuid })) as Report;
 
     if (!report) {
       throw new Error(`Report ${uuid} not found`);
     }
 
-    const reportData: ReportData = (report.data || []) as ReportData;
+    const reportData = report.data as Record<string, any>[];
 
     const providerConfigByName = new Map<string, ScheduledProviderConfig>();
     for (const provider of providers) {
@@ -150,17 +153,20 @@ export class ReportsService {
       arr.sort((a, b) => getOrder(a.order) - getOrder(b.order));
     };
 
-    const buildMetricOrderMap = (metrics: { name: string; order: number }[]) => {
+    const buildMetricOrderMap = (
+      metrics: { name: string; order: number }[],
+    ) => {
       const map = new Map<string, number>();
       for (const m of metrics) map.set(m.name, m.order);
       return map;
     };
 
     for (const providerReport of reportData) {
-      const scheduledProvider = providerConfigByName.get(providerReport.provider);
+      const scheduledProvider = providerConfigByName.get(
+        providerReport.provider,
+      );
       if (!scheduledProvider) continue;
 
-      // Build quick access map for section config by name
       const sectionConfigByName = new Map(
         scheduledProvider.sections.map((s) => [s.name, s]),
       );
@@ -169,10 +175,8 @@ export class ReportsService {
         const sectionConfig = sectionConfigByName.get(section.name);
         if (!sectionConfig) continue;
 
-        // Apply section order
         section.order = sectionConfig.order ?? section.order;
 
-        // Build ad account config map for this section
         const adAccountConfigById = new Map(
           sectionConfig.adAccounts.map((a) => [a.adAccountId, a]),
         );
@@ -181,21 +185,19 @@ export class ReportsService {
           const adAccConfig = adAccountConfigById.get(adAccount.adAccountId);
           if (!adAccConfig) continue;
 
-          // Apply ad account order
           adAccount.order = adAccConfig.order ?? adAccount.order;
 
-          // Apply metrics order inside ad account data based on section name
           const metricOrderMap = buildMetricOrderMap(adAccConfig.metrics || []);
 
           if (section.name === "kpis") {
-            const data = adAccount.data as KpiAdAccountData;
+            const data = adAccount.data;
             for (const metric of data) {
               const ord = metricOrderMap.get(metric.name);
               if (ord !== undefined) metric.order = ord;
             }
             sortByOrder(data);
           } else if (section.name === "graphs") {
-            const data = adAccount.data as GraphsAdAccountData;
+            const data = adAccount.data;
             for (const graph of data) {
               for (const point of graph.data) {
                 const ord = metricOrderMap.get(point.name);
@@ -204,7 +206,7 @@ export class ReportsService {
               sortByOrder(graph.data);
             }
           } else if (section.name === "ads") {
-            const data = adAccount.data as AdsAdAccountData;
+            const data = adAccount.data;
             for (const creative of data) {
               for (const point of creative.data) {
                 const ord = metricOrderMap.get(point.name);
@@ -213,7 +215,7 @@ export class ReportsService {
               sortByOrder(creative.data);
             }
           } else if (section.name === "campaigns") {
-            const data = adAccount.data as TableAdAccountData;
+            const data = adAccount.data;
             for (const row of data) {
               for (const point of row.data) {
                 const ord = metricOrderMap.get(point.name);
@@ -224,11 +226,9 @@ export class ReportsService {
           }
         }
 
-        // After updating each ad account, sort ad accounts by order
         sortByOrder(section.adAccounts);
       }
 
-      // After updating all sections, sort sections by order
       sortByOrder(providerReport.sections);
     }
 
@@ -236,86 +236,4 @@ export class ReportsService {
 
     await database.em.persistAndFlush(report);
   }
-  
 }
-
-export type ReportData = ProviderReportResponse[]
-
-  export interface ProviderReportResponse {
-    provider: string
-    sections: SectionReportResponse[]
-  }
-
-  export interface SectionReportResponse {
-    name: SectionKey
-    order: number
-    adAccounts: AdAccountReportResponse[]
-  }
-
-  export interface AdAccountReportResponse {
-    adAccountId: string
-    adAccountName: string
-    data: AdAccountData
-    order: number
-  }
-
-  export type AdAccountData = KpiAdAccountData | GraphsAdAccountData | AdsAdAccountData | TableAdAccountData
-
-  // kpis
-  export type KpiAdAccountData = KpiAdAccountMetric[]
-
-  export interface KpiAdAccountMetric {
-    name: string
-    order: number
-    value: number
-  }
-
-  // graphs
-  export type GraphsAdAccountData = GraphData[]
-
-  export interface GraphData {
-    data: GraphDataPoint[]
-    date_start: string
-    date_end: string
-  }
-
-  export interface GraphDataPoint {
-    name: string
-    order: number
-    value: number
-  }
-
-  // ads
-  export type AdsAdAccountData = AdsAdAccountDataCreative[]
-
-  export interface AdsAdAccountDataCreative {
-    adId: string
-    data: AdsAdAccountDataPoint[]
-    ad_name: string
-    sourceUrl: string
-    adCreativeId: string
-    thumbnailUrl?: string
-  }
-
-  export interface AdsAdAccountDataPoint {
-    name: string
-    order: number
-    value: number
-  }
-
-  // campaigns
-  export type TableAdAccountData = CampaignData[]
-
-  export interface CampaignData {
-    data: CampaignDataPoint[]
-    index: number
-    campaign_name: string
-  }
-
-  export interface CampaignDataPoint {
-    name: string
-    order: number
-    value: number
-  }
-
-  export type SectionKey = 'kpis' | 'graphs' | 'ads' | 'campaigns';

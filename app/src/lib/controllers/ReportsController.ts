@@ -3,8 +3,8 @@ import type { Context } from "koa";
 import { ReportsService } from "../services/ReportsService.js";
 import { MarklieError, User } from "marklie-ts-core";
 import {
-  type SendAfterReviewRequest,
   type ReportImages,
+  type SendAfterReviewRequest,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import type { ScheduledProviderConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
@@ -22,10 +22,7 @@ export class ReportsController extends Router {
     this.get("/client/:uuid", this.getClientReports.bind(this));
     this.post("/send-after-review", this.sendAfterReview.bind(this));
     this.put("/report-images/:uuid", this.updateReportImages.bind(this));
-    this.put(
-      "/report-data/:uuid",
-      this.updateReportData.bind(this),
-    );
+    this.put("/report-data/:uuid", this.updateReportData.bind(this));
   }
 
   private async getReport(ctx: Context) {
@@ -86,10 +83,7 @@ export class ReportsController extends Router {
       .body as ScheduledProviderConfig[];
     const uuid = ctx.params.uuid as string;
 
-    await this.reportsService.updateReportData(
-      uuid,
-      providers,
-    );
+    await this.reportsService.updateReportData(uuid, providers);
 
     ctx.body = {
       message: "Report metrics selections updated successfully",

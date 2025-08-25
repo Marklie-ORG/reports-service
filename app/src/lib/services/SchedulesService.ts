@@ -10,8 +10,10 @@ import {
   SchedulingOption,
 } from "marklie-ts-core";
 import { ReportQueueService } from "./ReportsQueueService.js";
-import type { ReportJobData } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
-import type { ReportData } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
+import type {
+  ReportData,
+  ReportJobData,
+} from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { Temporal } from "@js-temporal/polyfill";
 import { CronUtil } from "../utils/CronUtil.js";
 import { FacebookApi } from "../apis/FacebookApi.js";
@@ -406,7 +408,7 @@ export class SchedulesService {
       {
         uuid: clientUuid,
       },
-      { populate: ["organization", "adAccounts"] },
+      { populate: ["organization", "adAccounts"], refresh: true },
     );
 
     if (!client) {
@@ -454,5 +456,4 @@ export class SchedulesService {
 
     return result;
   }
-  
 }

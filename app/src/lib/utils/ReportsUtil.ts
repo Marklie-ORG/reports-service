@@ -211,7 +211,7 @@ export class ReportsUtil {
     client: OrganizationClient,
     report: Report,
   ): Promise<void> {
-    const topic = data.reviewRequired
+    const topic = report.reviewRequired
       ? "notification-report-ready"
       : "notification-send-report";
 
@@ -266,11 +266,12 @@ export class ReportsUtil {
         waitUntil: "domcontentloaded",
         timeout: 120000,
       });
-
-      await page.waitForSelector(".graph-card", { timeout: 60000 });
+      await new Promise((res) => setTimeout(res, 3000));
 
       const dashboardHeight = await page.evaluate(() => {
-        const el = document.querySelector(".report-container");
+        const el = document.querySelector(
+          ".report-container",
+        ) as HTMLElement | null;
         return el ? el.scrollHeight : 2000;
       });
 
