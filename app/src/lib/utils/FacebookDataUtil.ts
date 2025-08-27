@@ -30,21 +30,19 @@ export class FacebookDataUtil {
     return Number(values?.find((a) => a.action_type === type)?.value || 0);
   }
 
-  // private static getLeads(values: any[], type: string): number {
-  //   return Number(values?.find((a) => a.action_type === type)?.value || 0);
-  // }
-
   public static async getAdAccountReportData(
     organizationUuid: string,
     adAccountId: string,
     datePreset: string,
     adAccountConfig: ScheduledAdAccountConfig,
-  ): Promise<{
-    kpis: Metric[];
-    graphs: ReportDataGraph[];
-    campaigns: ReportDataCampaign[];
-    ads: ReportDataAd[];
-  }> {
+  ): Promise<
+    Partial<{
+      kpis: Metric[];
+      graphs: ReportDataGraph[];
+      campaigns: ReportDataCampaign[];
+      ads: ReportDataAd[];
+    }>
+  > {
     const api = await FacebookApi.create(organizationUuid, adAccountId);
 
     const selectedKpis = this.extractOrderedMetricNames(adAccountConfig.kpis);
@@ -57,58 +55,83 @@ export class FacebookDataUtil {
     );
     const allCustomMetrics = this.combineCustomMetrics(adAccountConfig);
 
-    const allMetrics = [
-      ...this.resolveMetricsFromMap(selectedKpis, AVAILABLE_KPI_METRICS),
-      ...this.resolveMetricsFromMap(selectedAds, AVAILABLE_ADS_METRICS),
-      ...this.resolveMetricsFromMap(selectedGraphs, AVAILABLE_GRAPH_METRICS),
-      ...this.resolveMetricsFromMap(
-        [...selectedCampaigns, "campaign_name"],
-        AVAILABLE_CAMPAIGN_METRICS,
-      ),
-    ];
+    console.log(selectedKpis, selectedAds, selectedGraphs, selectedCampaigns);
 
-    const resolvedSelectedAds = this.resolveMetricsFromMap(
-      selectedAds,
-      AVAILABLE_ADS_METRICS,
-    );
+    const result: Partial<{
+      kpis: any;
+      graphs: ReportDataGraph[];
+      campaigns: ReportDataCampaign[];
+      ads: ReportDataAd[];
+    }> = {};
 
-    if (allCustomMetrics.length > 0) {
-      allMetrics.push("actions", "action_values");
+    if (
+      selectedKpis.length ||
+      selectedGraphs.length ||
+      selectedCampaigns.length
+    ) {
+      const allMetrics = [
+        ...(selectedKpis.length
+          ? this.resolveMetricsFromMap(selectedKpis, AVAILABLE_KPI_METRICS)
+          : []),
+        ...(selectedGraphs.length
+          ? this.resolveMetricsFromMap(selectedGraphs, AVAILABLE_GRAPH_METRICS)
+          : []),
+        ...(selectedCampaigns.length
+          ? this.resolveMetricsFromMap(
+              [...selectedCampaigns, "campaign_name"],
+              AVAILABLE_CAMPAIGN_METRICS,
+            )
+          : []),
+      ];
+
+      if (allCustomMetrics.length > 0) {
+        allMetrics.push("actions", "action_values");
+      }
+
+      const fields = [...new Set(allMetrics)];
+      const hasGraphs = selectedGraphs.length > 0;
+
+      const insights = await api.getInsightsSmart("campaign", fields, {
+        datePreset,
+        additionalFields: ["campaign_id", "ad_id", "date_start", "date_stop"],
+        ...(hasGraphs ? { timeIncrement: 1 } : {}),
+      });
+
+      if (selectedKpis.length > 0) {
+        result.kpis = this.aggregateCampaignDataToKPIs(
+          insights,
+          selectedKpis,
+          allCustomMetrics,
+        );
+      }
+
+      if (selectedGraphs.length > 0) {
+        result.graphs = this.aggregateCampaignDataToGraphs(
+          insights,
+          selectedGraphs,
+          allCustomMetrics,
+        );
+      }
+
+      if (selectedCampaigns.length > 0) {
+        result.campaigns = this.normalizeCampaigns(
+          insights,
+          selectedCampaigns,
+          allCustomMetrics,
+        );
+      }
     }
 
-    const fields = [...new Set(allMetrics)];
-    const hasGraphs = selectedGraphs.length > 0;
-    const insights = await api.getInsightsSmart("campaign", fields, {
-      datePreset,
-      additionalFields: ["campaign_id", "ad_id", "date_start", "date_stop"],
-      ...(hasGraphs ? { timeIncrement: 1 } : {}),
-    });
-
-    const kpis = this.aggregateCampaignDataToKPIs(
-      insights,
-      selectedKpis,
-      allCustomMetrics,
-    );
-
-    const graphs = this.aggregateCampaignDataToGraphs(
-      insights,
-      selectedGraphs,
-      allCustomMetrics,
-    );
-
-    const campaigns = this.normalizeCampaigns(
-      insights,
-      selectedCampaigns,
-      allCustomMetrics,
-    );
-
-    let ads: ReportDataAd[] = [];
     if (selectedAds.length > 0) {
+      const resolvedSelectedAds = this.resolveMetricsFromMap(
+        selectedAds,
+        AVAILABLE_ADS_METRICS,
+      );
       const adsInsights = await api.getAdInsightsWithThumbnails(
         resolvedSelectedAds,
         datePreset,
       );
-      ads = await this.processAds(
+      result.ads = await this.processAds(
         adsInsights,
         selectedAds,
         organizationUuid,
@@ -116,12 +139,7 @@ export class FacebookDataUtil {
       );
     }
 
-    return {
-      kpis: kpis as Metric[],
-      graphs,
-      campaigns,
-      ads,
-    };
+    return result;
   }
 
   public static extractOrderedMetricNames<

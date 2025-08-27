@@ -99,10 +99,9 @@ export class FacebookProvider implements AdsProvider {
       ),
     );
 
-    // Transform to new ReportDataSection structure
     return sections.map((section): ReportDataSection => {
       const adAccounts: ReportDataSectionAdAccount[] = section.adAccounts.map(
-        (adAccount: { adAccountId: string; order: any, currency: string }) => {
+        (adAccount: { adAccountId: string; order: any; currency: string }) => {
           const runtime = dataMap.get(adAccount.adAccountId);
           const linked = linkedAccounts.find(
             (acc) => acc.adAccountId === adAccount.adAccountId,
@@ -265,11 +264,17 @@ export function convertSectionsToScheduledConfigs(
   const adAccountOrder: string[] = [];
 
   for (const section of sections) {
+    if (!section.enabled) {
+      continue;
+    }
     for (const account of section.adAccounts) {
+      if (!account.enabled) {
+        continue;
+      }
       const adAccountId = account.adAccountId;
 
       if (!map.has(adAccountId)) {
-        adAccountOrder.push(adAccountId); // Track insertion order
+        adAccountOrder.push(adAccountId);
         map.set(adAccountId, {
           adAccountId,
           kpis: emptyGroup(),
