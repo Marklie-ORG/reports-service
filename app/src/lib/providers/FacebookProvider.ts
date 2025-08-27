@@ -99,146 +99,153 @@ export class FacebookProvider implements AdsProvider {
       ),
     );
 
-    // Transform to new ReportDataSection structure
-    return sections.map((section): ReportDataSection => {
-      const adAccounts: ReportDataSectionAdAccount[] = section.adAccounts.map(
-        (adAccount: { adAccountId: string; order: any, currency: string }) => {
-          const runtime = dataMap.get(adAccount.adAccountId);
-          const linked = linkedAccounts.find(
-            (acc) => acc.adAccountId === adAccount.adAccountId,
-          );
+    return sections
+      .filter((section) => section.enabled)
+      .map((section): ReportDataSection => {
+        const adAccounts: ReportDataSectionAdAccount[] = section.adAccounts.map(
+          (adAccount: {
+            adAccountId: string;
+            order: any;
+            currency: string;
+          }) => {
+            const runtime = dataMap.get(adAccount.adAccountId);
+            const linked = linkedAccounts.find(
+              (acc) => acc.adAccountId === adAccount.adAccountId,
+            );
 
-          if (!runtime) {
-            // Fallback: create empty data with requested metrics set to 0
-            const config = groupedConfigs.get(adAccount.adAccountId);
-            let fallbackData:
+            if (!runtime) {
+              // Fallback: create empty data with requested metrics set to 0
+              const config = groupedConfigs.get(adAccount.adAccountId);
+              let fallbackData:
+                | Metric[]
+                | ReportDataAd[]
+                | ReportDataCampaign[]
+                | ReportDataGraph[] = [];
+
+              if (config) {
+                switch (section.name) {
+                  case "kpis":
+                    const selectedKpis =
+                      FacebookDataUtil.extractOrderedMetricNames(config.kpis);
+                    const kpisCustomMetrics = config.kpis.customMetrics || [];
+
+                    // Combine regular metrics and custom metrics
+                    const kpisMetrics = selectedKpis.map((name, index) => ({
+                      name,
+                      order: index,
+                      value: 0,
+                    }));
+
+                    const kpisCustom = kpisCustomMetrics.map(
+                      (cm: { name: any; order: any }) => ({
+                        name: cm.name,
+                        order: cm.order,
+                        value: 0,
+                      }),
+                    );
+
+                    fallbackData = [...kpisMetrics, ...kpisCustom].sort(
+                      (a, b) => a.order - b.order,
+                    );
+                    break;
+
+                  case "graphs":
+                    const selectedGraphs =
+                      FacebookDataUtil.extractOrderedMetricNames(config.graphs);
+                    const graphsCustomMetrics =
+                      config.graphs.customMetrics || [];
+
+                    // Combine regular metrics and custom metrics for graphs
+                    const graphsMetrics = selectedGraphs.map((name, index) => ({
+                      name,
+                      order: index,
+                      value: 0,
+                    }));
+
+                    const graphsCustom = graphsCustomMetrics.map(
+                      (cm: { name: any; order: any }) => ({
+                        name: cm.name,
+                        order: cm.order,
+                        value: 0,
+                      }),
+                    );
+
+                    fallbackData = [
+                      {
+                        data: [...graphsMetrics, ...graphsCustom].sort(
+                          (a, b) => a.order - b.order,
+                        ),
+                        date_start: new Date().toISOString().split("T")[0],
+                        date_stop: new Date().toISOString().split("T")[0],
+                      },
+                    ];
+                    break;
+
+                  case "ads":
+                    // For ads, return empty array as there are no ads to show
+                    fallbackData = [];
+                    break;
+
+                  case "campaigns":
+                    // For campaigns, return empty array as there are no campaigns to show
+                    fallbackData = [];
+                    break;
+
+                  default:
+                    fallbackData = [];
+                }
+              }
+
+              return {
+                adAccountId: adAccount.adAccountId,
+                adAccountName:
+                  linked?.adAccountName ||
+                  `Ad Account ${adAccount.adAccountId}`,
+                order: adAccount.order || 0,
+                data: fallbackData,
+                currency: adAccount.currency,
+              };
+            }
+
+            let data:
               | Metric[]
               | ReportDataAd[]
               | ReportDataCampaign[]
               | ReportDataGraph[] = [];
 
-            if (config) {
-              switch (section.name) {
-                case "kpis":
-                  const selectedKpis =
-                    FacebookDataUtil.extractOrderedMetricNames(config.kpis);
-                  const kpisCustomMetrics = config.kpis.customMetrics || [];
-
-                  // Combine regular metrics and custom metrics
-                  const kpisMetrics = selectedKpis.map((name, index) => ({
-                    name,
-                    order: index,
-                    value: 0,
-                  }));
-
-                  const kpisCustom = kpisCustomMetrics.map(
-                    (cm: { name: any; order: any }) => ({
-                      name: cm.name,
-                      order: cm.order,
-                      value: 0,
-                    }),
-                  );
-
-                  fallbackData = [...kpisMetrics, ...kpisCustom].sort(
-                    (a, b) => a.order - b.order,
-                  );
-                  break;
-
-                case "graphs":
-                  const selectedGraphs =
-                    FacebookDataUtil.extractOrderedMetricNames(config.graphs);
-                  const graphsCustomMetrics = config.graphs.customMetrics || [];
-
-                  // Combine regular metrics and custom metrics for graphs
-                  const graphsMetrics = selectedGraphs.map((name, index) => ({
-                    name,
-                    order: index,
-                    value: 0,
-                  }));
-
-                  const graphsCustom = graphsCustomMetrics.map(
-                    (cm: { name: any; order: any }) => ({
-                      name: cm.name,
-                      order: cm.order,
-                      value: 0,
-                    }),
-                  );
-
-                  fallbackData = [
-                    {
-                      data: [...graphsMetrics, ...graphsCustom].sort(
-                        (a, b) => a.order - b.order,
-                      ),
-                      date_start: new Date().toISOString().split("T")[0],
-                      date_stop: new Date().toISOString().split("T")[0],
-                    },
-                  ];
-                  break;
-
-                case "ads":
-                  // For ads, return empty array as there are no ads to show
-                  fallbackData = [];
-                  break;
-
-                case "campaigns":
-                  // For campaigns, return empty array as there are no campaigns to show
-                  fallbackData = [];
-                  break;
-
-                default:
-                  fallbackData = [];
-              }
+            switch (section.name) {
+              case "kpis":
+                data = runtime.kpis ?? [];
+                break;
+              case "graphs":
+                data = runtime.graphs ?? [];
+                break;
+              case "ads":
+                data = runtime.ads ?? [];
+                break;
+              case "campaigns":
+                data = runtime.campaigns ?? [];
+                break;
+              default:
+                data = [];
             }
 
             return {
               adAccountId: adAccount.adAccountId,
-              adAccountName:
-                linked?.adAccountName || `Ad Account ${adAccount.adAccountId}`,
+              adAccountName: runtime.adAccountName,
               order: adAccount.order || 0,
-              data: fallbackData,
+              data,
               currency: adAccount.currency,
             };
-          }
+          },
+        );
 
-          let data:
-            | Metric[]
-            | ReportDataAd[]
-            | ReportDataCampaign[]
-            | ReportDataGraph[] = [];
-
-          switch (section.name) {
-            case "kpis":
-              data = runtime.kpis ?? [];
-              break;
-            case "graphs":
-              data = runtime.graphs ?? [];
-              break;
-            case "ads":
-              data = runtime.ads ?? [];
-              break;
-            case "campaigns":
-              data = runtime.campaigns ?? [];
-              break;
-            default:
-              data = [];
-          }
-
-          return {
-            adAccountId: adAccount.adAccountId,
-            adAccountName: runtime.adAccountName,
-            order: adAccount.order || 0,
-            data,
-            currency: adAccount.currency,
-          };
-        },
-      );
-
-      return {
-        name: section.name,
-        order: section.order || 0,
-        adAccounts,
-      };
-    });
+        return {
+          name: section.name,
+          order: section.order || 0,
+          adAccounts,
+        };
+      });
   }
 
   protected convertToRuntimeMetrics(
@@ -265,11 +272,17 @@ export function convertSectionsToScheduledConfigs(
   const adAccountOrder: string[] = [];
 
   for (const section of sections) {
+    if (!section.enabled) {
+      continue;
+    }
     for (const account of section.adAccounts) {
+      if (!account.enabled) {
+        continue;
+      }
       const adAccountId = account.adAccountId;
 
       if (!map.has(adAccountId)) {
-        adAccountOrder.push(adAccountId); // Track insertion order
+        adAccountOrder.push(adAccountId);
         map.set(adAccountId, {
           adAccountId,
           kpis: emptyGroup(),
