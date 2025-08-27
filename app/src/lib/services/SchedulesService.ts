@@ -292,6 +292,7 @@ export class SchedulesService {
     schedule.timezone = option.timeZone;
     schedule.datePreset = option.datePreset;
     schedule.reportName = option.reportName || "";
+    schedule.reviewRequired = option.reviewRequired || false;
 
     const [hour, minute] = option.time.split(":").map(Number);
     const plainDate = ReportsUtil.getNextRunDate(option).toPlainDate();
