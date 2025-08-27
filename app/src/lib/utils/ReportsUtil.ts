@@ -325,20 +325,30 @@ export class ReportsUtil {
     const now = Temporal.Now.zonedDateTimeISO(timeZone);
     const [hour, minute] = schedule.time.split(":").map(Number);
 
-    const baseTime = now.with({ hour, minute, second: 0, millisecond: 0 });
+    const baseTimeToday = now.with({ hour, minute, second: 0, millisecond: 0 });
 
     switch (schedule.frequency) {
       case "weekly":
       case "biweekly": {
-        const weekday = this.getWeekday(schedule.dayOfWeek); // 1 (Monday) to 7 (Sunday)
-        const daysUntil = (weekday + 7 - now.dayOfWeek) % 7 || 7;
-        let next = baseTime.add({ days: daysUntil });
+        const targetWeekday = this.getWeekday(schedule.dayOfWeek);
+        const todayWeekday = now.dayOfWeek;
 
-        if (
-          schedule.frequency === "biweekly" &&
-          Temporal.ZonedDateTime.compare(next, now) <= 0
-        ) {
-          next = next.add({ days: 14 });
+        let daysUntil: number;
+        if (targetWeekday > todayWeekday) {
+          daysUntil = targetWeekday - todayWeekday;
+        } else if (targetWeekday < todayWeekday) {
+          daysUntil = 7 - (todayWeekday - targetWeekday);
+        } else {
+          daysUntil =
+            Temporal.ZonedDateTime.compare(baseTimeToday, now) > 0 ? 0 : 7;
+        }
+
+        let next = baseTimeToday.add({ days: daysUntil });
+
+        if (schedule.frequency === "biweekly") {
+          if (Temporal.ZonedDateTime.compare(next, now) <= 0) {
+            next = next.add({ days: 14 });
+          }
         }
 
         return next;
@@ -346,24 +356,23 @@ export class ReportsUtil {
 
       case "monthly": {
         const day = schedule.dayOfMonth || 1;
-        const proposed = baseTime.with({ day });
-
-        return Temporal.ZonedDateTime.compare(proposed, now) < 0
-          ? proposed.add({ months: 1 })
-          : proposed;
+        const proposed = baseTimeToday.with({ day });
+        return Temporal.ZonedDateTime.compare(proposed, now) > 0
+          ? proposed
+          : proposed.add({ months: 1 });
       }
 
       case "custom": {
         const interval = schedule.intervalDays ?? 1;
-        return Temporal.ZonedDateTime.compare(baseTime, now) <= 0
-          ? now
-              .add({ days: interval })
-              .with({ hour, minute, second: 0, millisecond: 0 })
-          : baseTime.add({ days: interval });
+        return Temporal.ZonedDateTime.compare(baseTimeToday, now) > 0
+          ? baseTimeToday
+          : baseTimeToday.add({ days: interval });
       }
 
       default:
-        return baseTime;
+        return Temporal.ZonedDateTime.compare(baseTimeToday, now) > 0
+          ? baseTimeToday
+          : baseTimeToday.add({ days: 1 });
     }
   }
 }
