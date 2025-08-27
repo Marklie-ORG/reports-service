@@ -34,7 +34,9 @@ export class ReportsUtil {
       const isActive = await this.isSchedulingOptionActive(data.scheduleUuid);
 
       if (!isActive) {
-        logger.info(`Scheduling option ${data.scheduleUuid} is not active. Skipping report generation.`);
+        logger.info(
+          `Scheduling option ${data.scheduleUuid} is not active. Skipping report generation.`,
+        );
         return { success: true };
       }
 
@@ -69,7 +71,9 @@ export class ReportsUtil {
     }
   }
 
-  private static async isSchedulingOptionActive(scheduleUuid: string): Promise<boolean> {
+  private static async isSchedulingOptionActive(
+    scheduleUuid: string,
+  ): Promise<boolean> {
     const option = await database.em.findOne(SchedulingOption, {
       uuid: scheduleUuid,
     });
@@ -101,6 +105,7 @@ export class ReportsUtil {
           sections,
         });
       } catch (error) {
+        console.error(error);
         logger.error(
           `Error processing ${providerConfig.provider} data:`,
           error,

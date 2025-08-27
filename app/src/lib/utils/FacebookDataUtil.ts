@@ -46,16 +46,14 @@ export class FacebookDataUtil {
     const api = await FacebookApi.create(organizationUuid, adAccountId);
 
     const selectedKpis = this.extractOrderedMetricNames(adAccountConfig.kpis);
-    const selectedAds = this.extractOrderedMetricNames(adAccountConfig.ads);
     const selectedGraphs = this.extractOrderedMetricNames(
       adAccountConfig.graphs,
     );
     const selectedCampaigns = this.extractOrderedMetricNames(
       adAccountConfig.campaigns,
     );
+    const selectedAds = this.extractOrderedMetricNames(adAccountConfig.ads);
     const allCustomMetrics = this.combineCustomMetrics(adAccountConfig);
-
-    console.log(selectedKpis, selectedAds, selectedGraphs, selectedCampaigns);
 
     const result: Partial<{
       kpis: any;
@@ -69,7 +67,7 @@ export class FacebookDataUtil {
       selectedGraphs.length ||
       selectedCampaigns.length
     ) {
-      const allMetrics = [
+      const allMetrics: string[] = [
         ...(selectedKpis.length
           ? this.resolveMetricsFromMap(selectedKpis, AVAILABLE_KPI_METRICS)
           : []),
@@ -83,52 +81,43 @@ export class FacebookDataUtil {
             )
           : []),
       ];
-
-      if (allCustomMetrics.length > 0) {
-        allMetrics.push("actions", "action_values");
-      }
+      if (allCustomMetrics.length) allMetrics.push("actions", "action_values");
 
       const fields = [...new Set(allMetrics)];
-      const hasGraphs = selectedGraphs.length > 0;
-
       const insights = await api.getInsightsSmart("campaign", fields, {
         datePreset,
         additionalFields: ["campaign_id", "ad_id", "date_start", "date_stop"],
-        ...(hasGraphs ? { timeIncrement: 1 } : {}),
+        ...(selectedGraphs.length ? { timeIncrement: 1 } : {}),
       });
 
-      if (selectedKpis.length > 0) {
+      if (selectedKpis.length)
         result.kpis = this.aggregateCampaignDataToKPIs(
           insights,
           selectedKpis,
           allCustomMetrics,
         );
-      }
-
-      if (selectedGraphs.length > 0) {
+      if (selectedGraphs.length)
         result.graphs = this.aggregateCampaignDataToGraphs(
           insights,
           selectedGraphs,
           allCustomMetrics,
         );
-      }
-
-      if (selectedCampaigns.length > 0) {
+      if (selectedCampaigns.length)
         result.campaigns = this.normalizeCampaigns(
           insights,
           selectedCampaigns,
           allCustomMetrics,
         );
-      }
     }
 
-    if (selectedAds.length > 0) {
-      const resolvedSelectedAds = this.resolveMetricsFromMap(
+    // Ads fetched only if ads are requested
+    if (selectedAds.length) {
+      const resolvedAds = this.resolveMetricsFromMap(
         selectedAds,
         AVAILABLE_ADS_METRICS,
       );
       const adsInsights = await api.getAdInsightsWithThumbnails(
-        resolvedSelectedAds,
+        resolvedAds,
         datePreset,
       );
       result.ads = await this.processAds(
@@ -139,7 +128,7 @@ export class FacebookDataUtil {
       );
     }
 
-    return result;
+    return result; // keys absent for disabled/empty sections
   }
 
   public static extractOrderedMetricNames<
