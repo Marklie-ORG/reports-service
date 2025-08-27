@@ -152,24 +152,6 @@ export class ReportsUtil {
     client: OrganizationClient,
     generatedReportData: ReportData[],
   ): Promise<Report> {
-    const gcs = GCSWrapper.getInstance("marklie-client-reports");
-
-    let newImages = {
-      organizationLogo: "",
-      clientLogo: "",
-      organizationLogoGsUri: "",
-      clientLogoGsUri: "",
-    };
-    if (data.images) {
-      newImages.organizationLogo = data.images.organizationLogo
-        ? await gcs.getSignedUrl(data.images.organizationLogo)
-        : "";
-      newImages.clientLogo = data.images.clientLogo
-        ? await gcs.getSignedUrl(data.images.clientLogo)
-        : "";
-      newImages.organizationLogoGsUri = data.images.organizationLogo;
-      newImages.clientLogoGsUri = data.images.clientLogo;
-    }
     const report = database.em.create(Report, {
       organization: client.organization,
       client,
@@ -185,7 +167,10 @@ export class ReportsUtil {
         aiGeneratedContent: "",
         userReportDescription: "",
         messages: data.messages,
-        images: newImages,
+        images: {
+          organizationLogoGsUri: data.images?.organizationLogo ?? "",
+          clientLogoGsUri: data.images?.clientLogo ?? "",
+        },
         reportName: data.reportName,
       },
     });
@@ -219,7 +204,7 @@ export class ReportsUtil {
     client: OrganizationClient,
     report: Report,
   ): Promise<void> {
-    const topic = data.reviewRequired
+    const topic = report.reviewRequired
       ? "notification-report-ready"
       : "notification-send-report";
 
@@ -261,7 +246,6 @@ export class ReportsUtil {
   }
 
   public static async generateReportPdf(reportUuid: string): Promise<Buffer> {
-
     const isProduction = process.env.ENVIRONMENT === "production";
     const baseUrl = isProduction
       ? "https://marklie.com"
@@ -275,15 +259,12 @@ export class ReportsUtil {
         waitUntil: "domcontentloaded",
         timeout: 120000,
       });
-      
-      try {
-        await page.waitForSelector(".graph-card", { timeout: 20000 });
-      } catch (e) {
-        console.log("Failed to wait for graph card to load:", e);
-      }
+      await new Promise((res) => setTimeout(res, 3000));
 
       const dashboardHeight = await page.evaluate(() => {
-        const el = document.querySelector(".report-container");
+        const el = document.querySelector(
+          ".report-container",
+        ) as HTMLElement | null;
         return el ? el.scrollHeight : 2000;
       });
 

@@ -3,8 +3,8 @@ import type { Context } from "koa";
 import { ReportsService } from "../services/ReportsService.js";
 import { MarklieError, User } from "marklie-ts-core";
 import {
-  type SendAfterReviewRequest,
   type ReportImages,
+  type SendAfterReviewRequest,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import type { ScheduledProviderConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
@@ -23,11 +23,8 @@ export class ReportsController extends Router {
     this.get("/pending-review/count", this.getPendingReviewCount.bind(this));
     this.post("/send-after-review", this.sendAfterReview.bind(this));
     this.put("/report-images/:uuid", this.updateReportImages.bind(this));
+    this.put("/report-data/:uuid", this.updateReportData.bind(this));
     this.put("/report-title/:uuid", this.updateReportTitle.bind(this));
-    this.put(
-      "/report-data/:uuid",
-      this.updateReportData.bind(this),
-    );
     this.put("/report-messages/:uuid", this.updateReportMessages.bind(this));
   }
 
@@ -63,7 +60,10 @@ export class ReportsController extends Router {
     const body = ctx.request.body as SendAfterReviewRequest;
 
     const scheduleUuid: string | void =
-      await this.reportsService.sendReportAfterReview(body.reportUuid, body.sendAt);
+      await this.reportsService.sendReportAfterReview(
+        body.reportUuid,
+        body.sendAt,
+      );
 
     ctx.body = {
       message: "Report was saved and sent to the client",
@@ -97,11 +97,7 @@ export class ReportsController extends Router {
     const { reportName } = ctx.request.body as { reportName: string };
     const uuid = ctx.params.uuid as string;
 
-    if (typeof reportName !== "string") {
-      throw MarklieError.badRequest("Invalid reportName provided", undefined, "reports-service");
-    }
-
-    await this.reportsService.updateReportTitle(uuid, reportName);
+    await this.reportsService.updateReportMetadata(uuid, { reportName });
 
     ctx.body = {
       message: "Report title updated successfully",
@@ -114,10 +110,7 @@ export class ReportsController extends Router {
       .body as ScheduledProviderConfig[];
     const uuid = ctx.params.uuid as string;
 
-    await this.reportsService.updateReportData(
-      uuid,
-      providers,
-    );
+    await this.reportsService.updateReportData(uuid, providers);
 
     ctx.body = {
       message: "Report metrics selections updated successfully",
@@ -129,7 +122,7 @@ export class ReportsController extends Router {
     const uuid = ctx.params.uuid as string;
     const messages = ctx.request.body as any;
 
-    await this.reportsService.updateReportMessages(uuid, messages);
+    await this.reportsService.updateReportMetadata(uuid, { messages });
 
     ctx.body = {
       message: "Report messages updated successfully",
