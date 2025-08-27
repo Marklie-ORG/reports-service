@@ -43,7 +43,6 @@ export class ReportsService {
     if (!organizationUuid) {
       throw new Error("No organization Uuid");
     }
-    // @ts-ignore
     return await database.em.find(
       Report,
       {
@@ -51,13 +50,6 @@ export class ReportsService {
       },
       {
         populate: ["client"],
-        fields: [
-          "uuid",
-          "reportType",
-          "reviewRequired",
-          "client.uuid",
-          "client.name",
-        ],
       },
     );
   }
