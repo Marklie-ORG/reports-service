@@ -108,7 +108,6 @@ export class FacebookDataUtil {
         {
           datePreset,
           additionalFields: ["campaign_id", "ad_id", "date_start", "date_stop"],
-          timeIncrement: 1,
         },
       );
     }
@@ -134,6 +133,7 @@ export class FacebookDataUtil {
         insightsTimeSeries,
         selectedGraphs,
         allCustomMetrics,
+        datePreset,
       );
     }
 
@@ -330,27 +330,64 @@ export class FacebookDataUtil {
     insights: any[],
     selectedGraphs: string[],
     allCustomMetrics: CustomMetric[],
+    datePreset?: string,
   ): ReportDataGraph[] {
     if (!insights || insights.length === 0) return [];
 
-    const dateGroups = new Map<string, any[]>();
+    console.log(insights);
+    const daysForPreset = (p?: string): number => {
+      if (!p) return 7;
+      const map: Record<string, number> = {
+        last_7d: 7,
+        last_14d: 14,
+        last_28d: 28,
+        last_30d: 30,
+        last_90d: 90,
+      };
+      return map[p] ?? 7;
+    };
 
-    // Group insights by date
-    for (const dataPoint of insights) {
-      const date = dataPoint.date_start;
-      if (!dateGroups.has(date)) {
-        dateGroups.set(date, []);
-      }
-      dateGroups.get(date)!.push(dataPoint);
+    const toYMD = (d: Date) => d.toISOString().slice(0, 10);
+    const addDays = (base: Date, n: number) => {
+      const d = new Date(base);
+      d.setUTCDate(d.getUTCDate() + n);
+      return d;
+    };
+
+    // Group raw rows by date
+    const rawByDate = new Map<string, any[]>();
+    for (const row of insights) {
+      const d = row.date_start;
+      if (!rawByDate.has(d)) rawByDate.set(d, []);
+      rawByDate.get(d)!.push(row);
     }
 
-    const graphs: ReportDataGraph[] = [];
+    // Determine continuous date span
+    let endDateStr: string | null = null;
+    for (const rows of rawByDate.values()) {
+      for (const r of rows) {
+        const ds = r.date_stop ?? r.date_start;
+        if (!endDateStr || ds > endDateStr) endDateStr = ds;
+      }
+    }
+    if (!endDateStr) endDateStr = toYMD(new Date());
+    const endDate = new Date(endDateStr + "T00:00:00Z");
 
-    for (const [date, dayData] of dateGroups) {
-      // Aggregate all campaigns for this date
-      const aggregatedInsight: any = {
+    const span = Math.max(1, daysForPreset(datePreset));
+    const startDate = addDays(endDate, -(span - 1));
+
+    // Build full list of dates in the span
+    const fullDates: string[] = [];
+    for (let i = 0; i < span; i++) fullDates.push(toYMD(addDays(startDate, i)));
+
+    // Aggregate per-day (fill missing with zeros)
+    const daily: ReportDataGraph[] = [];
+    for (const date of fullDates) {
+      const dayRows = rawByDate.get(date) ?? [];
+
+      const agg: any = {
         date_start: date,
-        date_stop: dayData[0]?.date_stop || date,
+        date_stop: dayRows[0]?.date_stop || date,
         spend: 0,
         impressions: 0,
         clicks: 0,
@@ -359,77 +396,103 @@ export class FacebookDataUtil {
         action_values: [],
       };
 
-      // Sum up numeric fields
-      for (const campaign of dayData) {
-        for (const [key, value] of Object.entries(campaign)) {
+      for (const c of dayRows) {
+        for (const [k, v] of Object.entries(c)) {
           if (
-            typeof value === "number" ||
-            (typeof value === "string" && !isNaN(Number(value)))
+            typeof v === "number" ||
+            (typeof v === "string" && !isNaN(Number(v)))
           ) {
-            if (key !== "date_start" && key !== "date_stop") {
-              aggregatedInsight[key] =
-                (aggregatedInsight[key] || 0) + Number(value);
+            if (k !== "date_start" && k !== "date_stop") {
+              agg[k] = (agg[k] ?? 0) + Number(v);
             }
           }
         }
 
-        // Aggregate actions
-        if (campaign.actions) {
-          for (const action of campaign.actions) {
-            const existing = aggregatedInsight.actions.find(
-              (a: any) => a.action_type === action.action_type,
+        if (c.actions) {
+          for (const a of c.actions) {
+            const ex = agg.actions.find(
+              (x: any) => x.action_type === a.action_type,
             );
-            if (existing) {
-              existing.value = (
-                Number(existing.value) + Number(action.value)
-              ).toString();
-            } else {
-              aggregatedInsight.actions.push({
-                action_type: action.action_type,
-                value: action.value,
-              });
-            }
+            if (ex) ex.value = (Number(ex.value) + Number(a.value)).toString();
+            else
+              agg.actions.push({ action_type: a.action_type, value: a.value });
           }
         }
 
-        // Aggregate action_values
-        if (campaign.action_values) {
-          for (const actionValue of campaign.action_values) {
-            const existing = aggregatedInsight.action_values.find(
-              (a: any) => a.action_type === actionValue.action_type,
+        if (c.action_values) {
+          for (const av of c.action_values) {
+            const ex = agg.action_values.find(
+              (x: any) => x.action_type === av.action_type,
             );
-            if (existing) {
-              existing.value = (
-                Number(existing.value) + Number(actionValue.value)
-              ).toString();
-            } else {
-              aggregatedInsight.action_values.push({
-                action_type: actionValue.action_type,
-                value: actionValue.value,
+            if (ex) ex.value = (Number(ex.value) + Number(av.value)).toString();
+            else
+              agg.action_values.push({
+                action_type: av.action_type,
+                value: av.value,
               });
-            }
           }
         }
       }
 
-      graphs.push({
+      daily.push({
         data: this.extractMetricsFromInsight(
-          aggregatedInsight,
+          agg,
           selectedGraphs,
           allCustomMetrics,
         ),
         date_start: date,
-        date_stop: aggregatedInsight.date_stop,
+        date_stop: agg.date_stop,
       });
     }
 
-    // Sort by date
-    graphs.sort(
-      (a, b) =>
-        new Date(a.date_start).getTime() - new Date(b.date_start).getTime(),
-    );
+    // Sample every N days where N = ceil(span / 7)
+    const step = Math.max(1, Math.ceil(span / 7)); // 14 -> 2, 28 -> 4, 30 -> 5, etc.
+    if (step === 1 && daily.length <= 7) return daily; // already fine
 
-    return graphs;
+    const isAverageMetric = (name: string) =>
+      /(ctr|rate|roas|cpc|cpm|cpp|cost)/i.test(name);
+
+    const sampled: ReportDataGraph[] = [];
+    for (let i = 0; i < daily.length; i += step) {
+      const window = daily.slice(i, i + step);
+      if (!window.length) continue;
+
+      const byName = new Map<
+        string,
+        { sum: number; count: number; order?: number }
+      >();
+      for (const day of window) {
+        for (const m of day.data) {
+          const key = m.name;
+          const cur = byName.get(key) ?? {
+            sum: 0,
+            count: 0,
+            order: (m as any).order,
+          };
+          cur.sum += Number(m.value ?? 0);
+          cur.count += 1;
+          if (cur.order === undefined && (m as any).order !== undefined)
+            cur.order = (m as any).order;
+          byName.set(key, cur);
+        }
+      }
+
+      const aggregatedMetrics: Metric[] = Array.from(byName.entries())
+        .map(([name, acc]) => {
+          const value = isAverageMetric(name) ? acc.sum / acc.count : acc.sum;
+          return { name, order: acc.order ?? 0, value };
+        })
+        .sort((a, b) => a.order - b.order);
+
+      sampled.push({
+        data: aggregatedMetrics,
+        date_start: window[0].date_start, // <-- first day in the bucket
+        date_stop: window[window.length - 1].date_stop, // <-- last day in the bucket
+      });
+    }
+
+    // Ensure at most 7 points (sampling may produce 8 if span not divisible by step)
+    return sampled.slice(-7);
   }
 
   private static extractMetricsFromInsight(
