@@ -31,15 +31,6 @@ export class ReportsUtil {
     data: ReportJobData,
   ): Promise<{ success: boolean }> {
     try {
-      const isActive = await this.isSchedulingOptionActive(data.scheduleUuid);
-
-      if (!isActive) {
-        logger.info(
-          `Scheduling option ${data.scheduleUuid} is not active. Skipping report generation.`,
-        );
-        return { success: true };
-      }
-
       logger.info(`Generating report for Client UUID: ${data.clientUuid}`);
 
       const client = await this.getClient(data.clientUuid);
@@ -69,15 +60,6 @@ export class ReportsUtil {
       this.handleProcessingError(e);
       return { success: false };
     }
-  }
-
-  private static async isSchedulingOptionActive(
-    scheduleUuid: string,
-  ): Promise<boolean> {
-    const option = await database.em.findOne(SchedulingOption, {
-      uuid: scheduleUuid,
-    });
-    return option?.isActive ?? false;
   }
 
   private static async generateProvidersReports(
