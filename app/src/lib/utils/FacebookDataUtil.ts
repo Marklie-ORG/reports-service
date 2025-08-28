@@ -62,55 +62,81 @@ export class FacebookDataUtil {
       ads: ReportDataAd[];
     }> = {};
 
-    if (
-      selectedKpis.length ||
-      selectedGraphs.length ||
-      selectedCampaigns.length
-    ) {
-      const allMetrics: string[] = [
-        ...(selectedKpis.length
-          ? this.resolveMetricsFromMap(selectedKpis, AVAILABLE_KPI_METRICS)
-          : []),
-        ...(selectedGraphs.length
-          ? this.resolveMetricsFromMap(selectedGraphs, AVAILABLE_GRAPH_METRICS)
-          : []),
-        ...(selectedCampaigns.length
-          ? this.resolveMetricsFromMap(
-              [...selectedCampaigns, "campaign_name"],
-              AVAILABLE_CAMPAIGN_METRICS,
-            )
-          : []),
-      ];
-      if (allCustomMetrics.length) allMetrics.push("actions", "action_values");
+    const fieldsAggregate: string[] = [
+      ...(selectedKpis.length
+        ? this.resolveMetricsFromMap(selectedKpis, AVAILABLE_KPI_METRICS)
+        : []),
+      ...(selectedCampaigns.length
+        ? this.resolveMetricsFromMap(
+            [...selectedCampaigns, "campaign_name"],
+            AVAILABLE_CAMPAIGN_METRICS,
+          )
+        : []),
+    ];
+    const fieldsTimeSeries: string[] = [
+      ...(selectedGraphs.length
+        ? this.resolveMetricsFromMap(selectedGraphs, AVAILABLE_GRAPH_METRICS)
+        : []),
+    ];
 
-      const fields = [...new Set(allMetrics)];
-      const insights = await api.getInsightsSmart("campaign", fields, {
-        datePreset,
-        additionalFields: ["campaign_id", "ad_id", "date_start", "date_stop"],
-        ...(selectedGraphs.length ? { timeIncrement: 1 } : {}),
-      });
-
-      if (selectedKpis.length)
-        result.kpis = this.aggregateCampaignDataToKPIs(
-          insights,
-          selectedKpis,
-          allCustomMetrics,
-        );
-      if (selectedGraphs.length)
-        result.graphs = this.aggregateCampaignDataToGraphs(
-          insights,
-          selectedGraphs,
-          allCustomMetrics,
-        );
-      if (selectedCampaigns.length)
-        result.campaigns = this.normalizeCampaigns(
-          insights,
-          selectedCampaigns,
-          allCustomMetrics,
-        );
+    if (allCustomMetrics.length) {
+      if (fieldsAggregate.length) {
+        fieldsAggregate.push("actions", "action_values");
+      }
+      if (fieldsTimeSeries.length) {
+        fieldsTimeSeries.push("actions", "action_values");
+      }
     }
 
-    // Ads fetched only if ads are requested
+    let insightsAggregate: any[] | null = null;
+    if (fieldsAggregate.length) {
+      insightsAggregate = await api.getInsightsSmart(
+        "campaign",
+        [...new Set(fieldsAggregate)],
+        {
+          datePreset,
+          additionalFields: ["campaign_id", "ad_id", "date_start", "date_stop"],
+        },
+      );
+    }
+
+    let insightsTimeSeries: any[] | null = null;
+    if (fieldsTimeSeries.length) {
+      insightsTimeSeries = await api.getInsightsSmart(
+        "campaign",
+        [...new Set(fieldsTimeSeries)],
+        {
+          datePreset,
+          additionalFields: ["campaign_id", "ad_id", "date_start", "date_stop"],
+          timeIncrement: 1,
+        },
+      );
+    }
+
+    if (selectedKpis.length && insightsAggregate) {
+      result.kpis = this.aggregateCampaignDataToKPIs(
+        insightsAggregate,
+        selectedKpis,
+        allCustomMetrics,
+      );
+    }
+
+    if (selectedCampaigns.length && insightsAggregate) {
+      result.campaigns = this.normalizeCampaigns(
+        insightsAggregate,
+        selectedCampaigns,
+        allCustomMetrics,
+      );
+    }
+
+    if (selectedGraphs.length && insightsTimeSeries) {
+      result.graphs = this.aggregateCampaignDataToGraphs(
+        insightsTimeSeries,
+        selectedGraphs,
+        allCustomMetrics,
+      );
+    }
+
     if (selectedAds.length) {
       const resolvedAds = this.resolveMetricsFromMap(
         selectedAds,
@@ -128,7 +154,7 @@ export class FacebookDataUtil {
       );
     }
 
-    return result; // keys absent for disabled/empty sections
+    return result;
   }
 
   public static extractOrderedMetricNames<
