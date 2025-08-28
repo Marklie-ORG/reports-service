@@ -53,7 +53,10 @@ export class FacebookDataUtil {
       adAccountConfig.campaigns,
     );
     const selectedAds = this.extractOrderedMetricNames(adAccountConfig.ads);
-    const allCustomMetrics = this.combineCustomMetrics(adAccountConfig);
+
+    const kpisCustom = adAccountConfig.kpis.customMetrics ?? [];
+    const graphsCustom = adAccountConfig.graphs.customMetrics ?? [];
+    const campaignsCustom = adAccountConfig.campaigns.customMetrics ?? [];
 
     const result: Partial<{
       kpis: any;
@@ -73,19 +76,23 @@ export class FacebookDataUtil {
           )
         : []),
     ];
+
+    if (kpisCustom.length && selectedKpis.length) {
+      fieldsAggregate.push("actions", "action_values");
+    }
+    if (campaignsCustom.length && selectedCampaigns.length) {
+      if (!fieldsAggregate.includes("actions")) fieldsAggregate.push("actions");
+      if (!fieldsAggregate.includes("action_values"))
+        fieldsAggregate.push("action_values");
+    }
+
     const fieldsTimeSeries: string[] = [
       ...(selectedGraphs.length
         ? this.resolveMetricsFromMap(selectedGraphs, AVAILABLE_GRAPH_METRICS)
         : []),
     ];
-
-    if (allCustomMetrics.length) {
-      if (fieldsAggregate.length) {
-        fieldsAggregate.push("actions", "action_values");
-      }
-      if (fieldsTimeSeries.length) {
-        fieldsTimeSeries.push("actions", "action_values");
-      }
+    if (graphsCustom.length && selectedGraphs.length) {
+      fieldsTimeSeries.push("actions", "action_values");
     }
 
     let insightsAggregate: any[] | null = null;
@@ -116,7 +123,7 @@ export class FacebookDataUtil {
       result.kpis = this.aggregateCampaignDataToKPIs(
         insightsAggregate,
         selectedKpis,
-        allCustomMetrics,
+        kpisCustom,
       );
     }
 
@@ -124,7 +131,7 @@ export class FacebookDataUtil {
       result.campaigns = this.normalizeCampaigns(
         insightsAggregate,
         selectedCampaigns,
-        allCustomMetrics,
+        campaignsCustom,
       );
     }
 
@@ -132,7 +139,7 @@ export class FacebookDataUtil {
       result.graphs = this.aggregateCampaignDataToGraphs(
         insightsTimeSeries,
         selectedGraphs,
-        allCustomMetrics,
+        graphsCustom,
         datePreset,
       );
     }
@@ -167,29 +174,6 @@ export class FacebookDataUtil {
     return metricGroup.metrics
       .sort((a, b) => a.order - b.order)
       .map((metric) => metric.name);
-  }
-
-  private static combineCustomMetrics(
-    adAccountConfig: ScheduledAdAccountConfig,
-  ): CustomMetric[] {
-    const customMetricsMap = new Map<string, CustomMetric>();
-
-    [
-      adAccountConfig.kpis,
-      adAccountConfig.graphs,
-      adAccountConfig.ads,
-      adAccountConfig.campaigns,
-    ].forEach((section) => {
-      if (section.customMetrics) {
-        section.customMetrics.forEach((metric) => {
-          customMetricsMap.set(metric.id, metric);
-        });
-      }
-    });
-
-    return Array.from(customMetricsMap.values()).sort(
-      (a, b) => a.order - b.order,
-    );
   }
 
   private static aggregateCampaignDataToKPIs(
