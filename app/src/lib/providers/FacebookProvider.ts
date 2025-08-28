@@ -78,7 +78,13 @@ export class FacebookProvider implements AdsProvider {
           const linked = linkedAccounts.find(
             (acc) => acc.adAccountId === config.adAccountId,
           );
-          if (!linked) return;
+
+          if (!linked) {
+            console.log(
+              `Ad account ${config.adAccountId} not linked. Skipping...`,
+            );
+            return;
+          }
 
           const reportData = await FacebookDataUtil.getAdAccountReportData(
             organizationUuid,
