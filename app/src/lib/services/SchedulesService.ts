@@ -331,7 +331,9 @@ export class SchedulesService {
 
     for (const option of schedulingOptions) {
       if (option.scheduledJob) {
-        await reportQueue.removeScheduledJob(option.scheduledJob.bullJobId);
+        const jobId = this.parseBullJobId(option.scheduledJob.bullJobId);
+
+        await reportQueue.removeScheduledJob(jobId);
         database.em.remove(option.scheduledJob);
       }
       database.em.remove(option);
@@ -353,11 +355,18 @@ export class SchedulesService {
       option.isActive = false;
 
       if (option.scheduledJob) {
-        await reportQueue.removeScheduledJob(option.scheduledJob.bullJobId);
+        const jobId = this.parseBullJobId(option.scheduledJob.bullJobId);
+        await reportQueue.removeScheduledJob(jobId);
       }
     }
 
     await database.em.persistAndFlush(schedulingOptions);
+  }
+
+  private parseBullJobId(bullJobId: string): string {
+    return bullJobId
+      .substring(0, bullJobId.lastIndexOf(":"))
+      .replace(/^repeat:/, "");
   }
 
   public async activateSchedulingOptions(uuids: string[]): Promise<void> {
