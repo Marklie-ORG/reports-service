@@ -4,13 +4,13 @@ on:
   push:
     branches:
       - main
+      - staging
 
 env:
   PROJECT_ID: saas-452909
   REGION: europe-west4
   REGISTRY: europe-west4-docker.pkg.dev
   IMAGE_NAME: reports-service
-  SERVICE_NAME: reports-service
   IMAGE_REPO: europe-west4-docker.pkg.dev/saas-452909/reports-service
 
 permissions:
@@ -18,9 +18,9 @@ permissions:
   id-token: write
 
 jobs:
-  deploy:
+  deploy-staging:
+    if: github.ref == 'refs/heads/staging'
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -41,23 +41,63 @@ jobs:
         run: |
           docker build \
             -f ./docker/Dockerfile \
-            -t ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+            -t ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:staging-${{ github.sha }} .
 
       - name: Push image to Artifact Registry
-        run: docker push ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        run: docker push ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:staging-${{ github.sha }}
 
-      - name: Deploy to Cloud Run
+      - name: Deploy to Cloud Run (staging)
         uses: google-github-actions/deploy-cloudrun@v2
         with:
-          service: ${{ env.SERVICE_NAME }}
-          image: ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          service: ${{ env.IMAGE_NAME }}-staging
+          image: ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:staging-${{ github.sha }}
           region: ${{ env.REGION }}
           env_vars: |
-            REDIS_HOST=${{ secrets.REDIS_HOST }}
+            ENVIRONMENT=staging
+            REDIS_HOST=${{ secrets.STAGING_REDIS_HOST }}
+            ACCESS_TOKEN_SECRET=${{ secrets.STAGING_ACCESS_TOKEN_SECRET }}
+            REFRESH_TOKEN_SECRET=${{ secrets.STAGING_REFRESH_TOKEN_SECRET }}
+            GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}
+            ORG_TOKEN_SECRET_KEY=${{ secrets.STAGING_ORG_TOKEN_SECRET_KEY }}
+
+  deploy-prod:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_IDENTITY_PROVIDER }}
+          service_account: 'github-deployer@saas-452909.iam.gserviceaccount.com'
+
+      - name: Set up gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGISTRY }}
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -f ./docker/Dockerfile \
+            -t ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:prod-${{ github.sha }} .
+
+      - name: Push image to Artifact Registry
+        run: docker push ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:prod-${{ github.sha }}
+
+      - name: Deploy to Cloud Run (production)
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.IMAGE_NAME }}-prod
+          image: ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:prod-${{ github.sha }}
+          region: ${{ env.REGION }}
+          env_vars: |
             ENVIRONMENT=production
+            REDIS_HOST=${{ secrets.REDIS_HOST }}
             ACCESS_TOKEN_SECRET=${{ secrets.ACCESS_TOKEN_SECRET }}
             REFRESH_TOKEN_SECRET=${{ secrets.REFRESH_TOKEN_SECRET }}
             GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}
             ORG_TOKEN_SECRET_KEY=${{ secrets.ORG_TOKEN_SECRET_KEY }}
-      - name: Output service URL
-        run: echo "✅ Deployed to ${{ steps.deploy.outputs.url }}"
