@@ -8,6 +8,7 @@ import {
   CookiesMiddleware,
   Database,
   ErrorMiddleware,
+  FACEBOOK_DATE_PRESETS,
   Log,
   SentryMiddleware,
 } from "marklie-ts-core";
@@ -16,6 +17,9 @@ import { ReportQueueService } from "./lib/services/ReportsQueueService.js";
 import { ReportsController } from "./lib/controllers/ReportsController.js";
 import { ReportsConfigService } from "./lib/config/config.js";
 import { SchedulesController } from "./lib/controllers/SchedulesController.js";
+import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces";
+import type { ReportJobData } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
+// import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 const app = new Koa();
 const logger = Log.getInstance();
