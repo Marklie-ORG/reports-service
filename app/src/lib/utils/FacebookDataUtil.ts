@@ -113,10 +113,9 @@ export class FacebookDataUtil {
     }
 
     if (selectedGraphs.length) {
-      const totalDays = this.resolveDaysFromPreset(datePreset);
-      const targetBuckets = Math.min(7, totalDays); // e.g. last_3d -> 3 nodes
-      const timeIncrement = Math.max(1, Math.floor(totalDays / targetBuckets)); // FB bucketing step
-
+      const { since, until, days } = this.resolveRangeFromPreset(datePreset);
+      const targetBuckets = Math.min(7, days); // or whatever max you want
+      const timeIncrement = Math.ceil(days / targetBuckets);
       const fieldsTimeSeries: string[] = this.resolveMetricsFromMap(
         selectedGraphs,
         AVAILABLE_GRAPH_METRICS,
@@ -127,33 +126,28 @@ export class FacebookDataUtil {
       let insightsTimeSeries: any[] = [];
       if (fieldsTimeSeries.length) {
         insightsTimeSeries = await api.getInsightsSmart(
-          "campaign",
+          "account",
           [...new Set(fieldsTimeSeries)],
           {
-            datePreset,
+            customDateRange: { since, until },
             additionalFields: [
               "campaign_id",
               "ad_id",
               "date_start",
               "date_stop",
             ],
-            timeIncrement, // let FB pre-aggregate windows
+            timeIncrement, // 👈 dynamic!
           },
         );
       }
+      console.log(insightsTimeSeries);
 
-      const graphed = this.aggregateCampaignDataToGraphs(
+      result.graphs = this.createCollapsedBuckets(
         insightsTimeSeries,
         selectedGraphs,
         graphsCustom,
-      );
-
-      result.graphs = this.ensureGraphBucketCount(
-        graphed,
-        selectedGraphs,
-        targetBuckets,
         datePreset,
-        timeIncrement,
+        targetBuckets,
       );
     }
 
@@ -177,150 +171,125 @@ export class FacebookDataUtil {
     return result;
   }
 
-  private static resolveDaysFromPreset(preset?: string): number {
-    if (!preset) return 7;
-    const m = preset.match(/^last_(\d+)d$/i);
-    if (m) return Math.max(1, parseInt(m[1], 10));
-    const map: Record<string, number> = {
-      last_7d: 7,
-      last_14d: 14,
-      last_28d: 28,
-      last_30d: 30,
-      last_90d: 90,
-    };
-    return map[preset] ?? 7;
-  }
+  private static resolveRangeFromPreset(preset?: string): {
+    since: string;
+    until: string;
+    days: number;
+  } {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
 
-  private static aggregateCampaignDataToGraphs(
-    insights: any[],
-    selectedGraphs: string[],
-    allCustomMetrics: CustomMetric[],
-  ): ReportDataGraph[] {
-    if (!insights || insights.length === 0) return [];
+    const toYMD = (d: Date) => d.toISOString().slice(0, 10);
 
-    const byWindow = new Map<string, any[]>();
-    for (const row of insights) {
-      const key = `${row.date_start}::${row.date_stop}`;
-      if (!byWindow.has(key)) byWindow.set(key, []);
-      byWindow.get(key)!.push(row);
+    // Handle dynamic "last_Xd"
+    const m = preset?.match(/^last_(\d+)d$/i);
+    if (m) {
+      const days = Math.max(1, parseInt(m[1], 10));
+      const since = new Date(today);
+      since.setUTCDate(today.getUTCDate() - (days - 1));
+      return { since: toYMD(since), until: toYMD(today), days };
     }
 
-    const windows: ReportDataGraph[] = [];
-    for (const [key, rows] of byWindow) {
-      const [date_start, date_stop] = key.split("::");
-
-      const agg: any = {
-        spend: 0,
-        impressions: 0,
-        clicks: 0,
-        reach: 0,
-        actions: [],
-        action_values: [],
-      };
-
-      for (const c of rows) {
-        for (const [k, v] of Object.entries(c)) {
-          if (
-            typeof v === "number" ||
-            (typeof v === "string" && !isNaN(Number(v)))
-          ) {
-            if (k !== "date_start" && k !== "date_stop") {
-              agg[k] = (agg[k] ?? 0) + Number(v);
-            }
-          }
-        }
-        if (c.actions) {
-          for (const a of c.actions) {
-            const ex = agg.actions.find(
-              (x: any) => x.action_type === a.action_type,
-            );
-            if (ex) ex.value = (Number(ex.value) + Number(a.value)).toString();
-            else
-              agg.actions.push({ action_type: a.action_type, value: a.value });
-          }
-        }
-        if (c.action_values) {
-          for (const av of c.action_values) {
-            const ex = agg.action_values.find(
-              (x: any) => x.action_type === av.action_type,
-            );
-            if (ex) ex.value = (Number(ex.value) + Number(av.value)).toString();
-            else
-              agg.action_values.push({
-                action_type: av.action_type,
-                value: av.value,
-              });
-          }
-        }
-      }
-
-      windows.push({
-        date_start,
-        date_stop,
-        data: this.extractMetricsFromInsight(
-          agg,
-          selectedGraphs,
-          allCustomMetrics,
-        ),
-      });
-    }
-
-    windows.sort(
-      (a, b) =>
-        new Date(a.date_start).getTime() - new Date(b.date_start).getTime(),
+    const firstOfMonth = new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1),
+    );
+    const firstOfLastMonth = new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1),
     );
 
-    return windows;
+    const currentQuarter = Math.floor(today.getUTCMonth() / 3);
+    const firstOfThisQuarter = new Date(
+      Date.UTC(today.getUTCFullYear(), currentQuarter * 3, 1),
+    );
+    const firstOfLastQuarter = new Date(
+      Date.UTC(today.getUTCFullYear(), (currentQuarter - 1) * 3, 1),
+    );
+
+    switch (preset) {
+      case "today":
+        return { since: toYMD(today), until: toYMD(today), days: 1 };
+      case "yesterday": {
+        const d = new Date(today);
+        d.setUTCDate(today.getUTCDate() - 1);
+        return { since: toYMD(d), until: toYMD(d), days: 1 };
+      }
+      case "this_month":
+        return {
+          since: toYMD(firstOfMonth),
+          until: toYMD(today),
+          days:
+            Math.floor((today.getTime() - firstOfMonth.getTime()) / 86400000) +
+            1,
+        };
+      case "last_month": {
+        const end = new Date(firstOfMonth.getTime() - 86400000);
+        return {
+          since: toYMD(firstOfLastMonth),
+          until: toYMD(end),
+          days: Math.floor(
+            (firstOfMonth.getTime() - firstOfLastMonth.getTime()) / 86400000,
+          ),
+        };
+      }
+      case "this_quarter":
+        return {
+          since: toYMD(firstOfThisQuarter),
+          until: toYMD(today),
+          days:
+            Math.floor(
+              (today.getTime() - firstOfThisQuarter.getTime()) / 86400000,
+            ) + 1,
+        };
+      case "last_quarter": {
+        const end = new Date(firstOfThisQuarter.getTime() - 86400000);
+        return {
+          since: toYMD(firstOfLastQuarter),
+          until: toYMD(end),
+          days: Math.floor(
+            (firstOfThisQuarter.getTime() - firstOfLastQuarter.getTime()) /
+              86400000,
+          ),
+        };
+      }
+      case "last_3m":
+        return {
+          since: toYMD(new Date(today.getTime() - 90 * 86400000)),
+          until: toYMD(today),
+          days: 90,
+        };
+      case "last_90d":
+        return {
+          since: toYMD(new Date(today.getTime() - 89 * 86400000)),
+          until: toYMD(today),
+          days: 90,
+        };
+      case "lifetime":
+        return { since: "2000-01-01", until: toYMD(today), days: 3650 };
+      default:
+        return {
+          since: toYMD(new Date(today.getTime() - 6 * 86400000)),
+          until: toYMD(today),
+          days: 7,
+        };
+    }
   }
 
-  private static ensureGraphBucketCount(
-    graphs: ReportDataGraph[],
+  private static createCollapsedBuckets(
+    insights: any[],
     selectedGraphs: string[],
-    targetBuckets: number,
-    datePreset: string,
-    step: number,
+    customMetrics: CustomMetric[],
+    _datePreset: string,
+    _targetBuckets: number, // unused, because API does the bucketing
   ): ReportDataGraph[] {
-    if (graphs.length >= targetBuckets) return graphs.slice(-targetBuckets);
+    if (!insights.length) return [];
 
-    const totalDays = this.resolveDaysFromPreset(datePreset);
     const toYMD = (d: Date) => d.toISOString().slice(0, 10);
-    const addDaysUTC = (d: Date, n: number) => {
-      const x = new Date(
-        Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
-      );
-      x.setUTCDate(x.getUTCDate() + n);
-      return x;
-    };
 
-    const latestStop =
-      graphs.reduce<string | null>(
-        (acc, g) => (!acc || g.date_stop > acc ? g.date_stop : acc),
-        null,
-      ) || toYMD(addDaysUTC(new Date(), -1));
-
-    const end = new Date(latestStop + "T00:00:00Z");
-    const start = addDaysUTC(end, -(totalDays - 1));
-
-    const missing = targetBuckets - graphs.length;
-    const zeros: ReportDataGraph[] = [];
-    for (let i = missing - 1; i >= 0; i--) {
-      const s = addDaysUTC(start, i * step);
-      const e = addDaysUTC(
-        start,
-        Math.min(i * step + (step - 1), totalDays - 1),
-      );
-      zeros.push({
-        date_start: toYMD(s),
-        date_stop: toYMD(e),
-        data: selectedGraphs.map((name, idx) => ({
-          name,
-          order: idx,
-          value: 0,
-        })),
-      });
-    }
-
-    return [...zeros, ...graphs].slice(-targetBuckets);
+    return insights.map((row) => ({
+      date_start: toYMD(new Date(row.date_start)),
+      date_stop: toYMD(new Date(row.date_stop)),
+      data: this.extractMetricsFromInsight(row, selectedGraphs, customMetrics),
+    }));
   }
 
   public static extractOrderedMetricNames<
