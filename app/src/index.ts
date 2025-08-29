@@ -9,7 +9,7 @@ import {
   Database,
   ErrorMiddleware,
   Log,
-  ValidationMiddleware,
+  SentryMiddleware,
 } from "marklie-ts-core";
 
 import { ReportQueueService } from "./lib/services/ReportsQueueService.js";
@@ -50,6 +50,7 @@ app.use(
 );
 app.use(ValidationMiddleware());
 app.use(ErrorMiddleware());
+app.use(SentryMiddleware());
 app.use(ActivityLogMiddleware());
 
 app.use(new ReportsController().routes());
