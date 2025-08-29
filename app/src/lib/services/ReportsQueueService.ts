@@ -1,4 +1,10 @@
-import { BullMQWrapper, PubSubWrapper, RedisClient } from "marklie-ts-core";
+import {
+  BullMQWrapper,
+  ErrorCode,
+  MarklieError,
+  PubSubWrapper,
+  RedisClient,
+} from "marklie-ts-core";
 import type { ReportJobData } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { ReportsUtil } from "../utils/ReportsUtil.js";
 import type { Job } from "bullmq";
@@ -29,8 +35,10 @@ export class ReportQueueService {
     try {
       await ReportsUtil.processScheduledReportJob(data);
     } catch (err) {
-      // console.error(`Failed report job (ID: ${job.id}) on attempt ${job.attemptsMade + 1}:`, err);
-      throw err;
+      throw new MarklieError(
+        `Could not process job ${JSON.stringify(err)}`,
+        ErrorCode.INTERNAL_ERROR,
+      );
     }
   }
 

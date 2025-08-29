@@ -87,10 +87,9 @@ export class ReportsUtil {
           sections,
         });
       } catch (error) {
-        console.error(error);
         logger.error(
           `Error processing ${providerConfig.provider} data:`,
-          error,
+          JSON.stringify(error),
         );
       }
     }
@@ -240,9 +239,9 @@ export class ReportsUtil {
 
   private static handleProcessingError(error: unknown): void {
     if (error instanceof AxiosError && error.response) {
-      console.error(error.response.data);
+      logger.error(error.response.data);
     } else {
-      console.error("Failed to process scheduled report job:", error);
+      logger.error("Failed to process scheduled report job:", error);
     }
   }
 
