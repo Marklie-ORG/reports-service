@@ -39,6 +39,9 @@ export class ReportsUtil {
 
       const providersData = await this.generateProvidersReports(data);
 
+      const schedulingOption = await database.em.findOne(SchedulingOption, { uuid: data.scheduleUuid });
+      data.pdfFilename = this.generatePdfFilename(schedulingOption as SchedulingOption);
+
       const report = await this.saveReportEntity(data, client, providersData);
 
       await this.updateLastRun(data.scheduleUuid);
@@ -60,6 +63,18 @@ export class ReportsUtil {
       this.handleProcessingError(e);
       return { success: false };
     }
+  }
+
+  private static generatePdfFilename(schedulingOption: SchedulingOption): string {
+    if (!schedulingOption.nextRun) {
+      return "Report";
+    }
+    const date = new Date(schedulingOption.nextRun);
+    const day = String(date.getUTCDate()).padStart(2, "0");
+    const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const year = String(date.getUTCFullYear()).slice(-2); 
+    const formatted = `${day}.${month}.${year}`;
+    return formatted + " " + schedulingOption.client.name;
   }
 
   private static async generateProvidersReports(
@@ -172,6 +187,7 @@ export class ReportsUtil {
           clientLogoGsUri: data.images?.clientLogo ?? "",
         },
         reportName: data.reportName,
+        pdfFilename: data.pdfFilename ?? "",
       },
     });
 
