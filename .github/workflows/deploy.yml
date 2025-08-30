@@ -91,7 +91,7 @@ jobs:
       - name: Deploy to Cloud Run (production)
         uses: google-github-actions/deploy-cloudrun@v2
         with:
-          service: ${{ env.IMAGE_NAME }}-prod
+          service: ${{ env.IMAGE_NAME }}
           image: ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:prod-${{ github.sha }}
           region: ${{ env.REGION }}
           env_vars: |
