@@ -5,7 +5,6 @@ import {
   Log,
   MarklieError,
   OrganizationClient,
-  Report,
   ScheduledJob,
   SchedulingOption,
 } from "marklie-ts-core";
@@ -23,7 +22,6 @@ import {
   AVAILABLE_GRAPH_METRICS,
   AVAILABLE_KPI_METRICS,
   type ReportScheduleRequest,
-  type SchedulingOptionMetrics,
   type SchedulingOptionWithExtras,
   type SchedulingOptionWithImages,
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
@@ -279,7 +277,6 @@ export class SchedulesService {
     schedule.datePreset = option.datePreset;
     schedule.reportName = option.reportName || "";
     schedule.reviewRequired = option.reviewRequired || false;
-    schedule.colors = option.colors;
 
     const [hour, minute] = option.time.split(":").map(Number);
     const plainDate = ReportsUtil.getNextRunDate(option).toPlainDate();

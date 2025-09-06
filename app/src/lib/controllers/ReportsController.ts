@@ -3,7 +3,6 @@ import type { Context } from "koa";
 import { ReportsService } from "../services/ReportsService.js";
 import { MarklieError, User } from "marklie-ts-core";
 import {
-  type ReportImages,
   type SendAfterReviewRequest,
   type UpdateReportMetadataRequest
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
@@ -99,7 +98,10 @@ export class ReportsController extends Router {
     const uuid = ctx.params.uuid as string;
 
     if (metadata.images) {
-      await this.reportsService.updateReportImages(uuid, metadata.images);
+      await this.reportsService.updateReportImages(uuid, {
+        clientLogo: metadata.images.clientLogoGsUri,
+        organizationLogo: metadata.images.organizationLogoGsUri,
+      });
     }
 
     if (metadata.messages) {
