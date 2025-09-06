@@ -194,6 +194,7 @@ export class ReportsUtil {
         },
         reportName: data.reportName,
         pdfFilename: data.pdfFilename ?? "",
+        colors: data.colors ?? null,
       },
     });
 

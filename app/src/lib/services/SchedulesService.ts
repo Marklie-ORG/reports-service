@@ -151,20 +151,6 @@ export class SchedulesService {
     }
   }
 
-  async updateReportMetricsSelections(
-    uuid: string,
-    metricsSelections: SchedulingOptionMetrics,
-  ) {
-    const report = await database.em.findOne(Report, { uuid });
-
-    if (!report) {
-      throw new Error(`Report ${uuid} not found`);
-    }
-
-    report.metadata!.metricsSelections = metricsSelections;
-    await database.em.persistAndFlush(report);
-  }
-
   async getSchedulingOption(uuid: string): Promise<SchedulingOptionWithImages> {
     const gcs = GCSWrapper.getInstance("marklie-client-reports");
     const schedulingOption = await database.em.findOne(SchedulingOption, {
@@ -293,6 +279,7 @@ export class SchedulesService {
     schedule.datePreset = option.datePreset;
     schedule.reportName = option.reportName || "";
     schedule.reviewRequired = option.reviewRequired || false;
+    schedule.colors = option.colors;
 
     const [hour, minute] = option.time.split(":").map(Number);
     const plainDate = ReportsUtil.getNextRunDate(option).toPlainDate();
