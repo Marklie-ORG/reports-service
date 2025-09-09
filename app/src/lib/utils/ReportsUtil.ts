@@ -272,7 +272,7 @@ export class ReportsUtil {
 
   public static async generateReportPdf(reportUuid: string): Promise<Buffer> {
     let baseUrl: string;
-    switch (process.env.NODE_ENV) {
+    switch (process.env.ENVIRONMENT) {
       case "production":
         baseUrl = "https://marklie.com";
         break;
