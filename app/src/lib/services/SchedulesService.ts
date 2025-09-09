@@ -5,7 +5,6 @@ import {
   Log,
   MarklieError,
   OrganizationClient,
-  Report,
   ScheduledJob,
   SchedulingOption,
 } from "marklie-ts-core";
@@ -23,7 +22,6 @@ import {
   AVAILABLE_GRAPH_METRICS,
   AVAILABLE_KPI_METRICS,
   type ReportScheduleRequest,
-  type SchedulingOptionMetrics,
   type SchedulingOptionWithExtras,
   type SchedulingOptionWithImages,
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
@@ -149,20 +147,6 @@ export class SchedulesService {
     } catch (e) {
       logger.error("Failed to update scheduling option:", e);
     }
-  }
-
-  async updateReportMetricsSelections(
-    uuid: string,
-    metricsSelections: SchedulingOptionMetrics,
-  ) {
-    const report = await database.em.findOne(Report, { uuid });
-
-    if (!report) {
-      throw new Error(`Report ${uuid} not found`);
-    }
-
-    report.metadata!.metricsSelections = metricsSelections;
-    await database.em.persistAndFlush(report);
   }
 
   async getSchedulingOption(uuid: string): Promise<SchedulingOptionWithImages> {

@@ -3,8 +3,8 @@ import type { Context } from "koa";
 import { ReportsService } from "../services/ReportsService.js";
 import { MarklieError, User } from "marklie-ts-core";
 import {
-  type ReportImages,
   type SendAfterReviewRequest,
+  type UpdateReportMetadataRequest
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import type { ScheduledProviderConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
@@ -22,10 +22,8 @@ export class ReportsController extends Router {
     this.get("/client/:uuid", this.getClientReports.bind(this));
     this.get("/pending-review/count", this.getPendingReviewCount.bind(this));
     this.post("/send-after-review", this.sendAfterReview.bind(this));
-    this.put("/report-images/:uuid", this.updateReportImages.bind(this));
     this.put("/report-data/:uuid", this.updateReportData.bind(this));
-    this.put("/report-title/:uuid", this.updateReportTitle.bind(this));
-    this.put("/report-messages/:uuid", this.updateReportMessages.bind(this));
+    this.put("/report-metadata/:uuid", this.updateReportMetadata.bind(this));
   }
 
   private async getReport(ctx: Context) {
@@ -81,30 +79,6 @@ export class ReportsController extends Router {
     ctx.status = 200;
   }
 
-  private async updateReportImages(ctx: Context) {
-    const images: ReportImages = ctx.request.body as ReportImages;
-    const uuid = ctx.params.uuid as string;
-
-    await this.reportsService.updateReportImages(uuid, images);
-
-    ctx.body = {
-      message: "Report images updated successfully",
-    };
-    ctx.status = 200;
-  }
-
-  private async updateReportTitle(ctx: Context) {
-    const { reportName } = ctx.request.body as { reportName: string };
-    const uuid = ctx.params.uuid as string;
-
-    await this.reportsService.updateReportMetadata(uuid, { reportName });
-
-    ctx.body = {
-      message: "Report title updated successfully",
-    };
-    ctx.status = 200;
-  }
-
   private async updateReportData(ctx: Context) {
     const providers: ScheduledProviderConfig[] = ctx.request
       .body as ScheduledProviderConfig[];
@@ -118,15 +92,34 @@ export class ReportsController extends Router {
     ctx.status = 200;
   }
 
-  private async updateReportMessages(ctx: Context) {
+  private async updateReportMetadata(ctx: Context) {
+    const metadata: UpdateReportMetadataRequest = ctx.request
+      .body as UpdateReportMetadataRequest;
     const uuid = ctx.params.uuid as string;
-    const messages = ctx.request.body as any;
 
-    await this.reportsService.updateReportMetadata(uuid, { messages });
+    if (metadata.images) {
+      await this.reportsService.updateReportImages(uuid, {
+        clientLogo: metadata.images.clientLogoGsUri,
+        organizationLogo: metadata.images.organizationLogoGsUri,
+      });
+    }
+
+    if (metadata.messages) {
+      await this.reportsService.updateReportMetadata(uuid, { messages: metadata.messages });
+    }
+
+    if (metadata.colors) {
+      await this.reportsService.updateReportMetadata(uuid, { colors: metadata.colors });
+    }
+
+    if (metadata.reportName) {
+      await this.reportsService.updateReportMetadata(uuid, { reportName: metadata.reportName });
+    }
 
     ctx.body = {
-      message: "Report messages updated successfully",
+      message: "Report metrics selections updated successfully",
     };
     ctx.status = 200;
   }
+
 }

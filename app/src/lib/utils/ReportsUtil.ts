@@ -39,8 +39,12 @@ export class ReportsUtil {
 
       const providersData = await this.generateProvidersReports(data);
 
-      const schedulingOption = await database.em.findOne(SchedulingOption, { uuid: data.scheduleUuid });
-      data.pdfFilename = this.generatePdfFilename(schedulingOption as SchedulingOption);
+      const schedulingOption = await database.em.findOne(SchedulingOption, {
+        uuid: data.scheduleUuid,
+      });
+      data.pdfFilename = this.generatePdfFilename(
+        schedulingOption as SchedulingOption,
+      );
 
       const report = await this.saveReportEntity(data, client, providersData);
 
@@ -65,14 +69,16 @@ export class ReportsUtil {
     }
   }
 
-  private static generatePdfFilename(schedulingOption: SchedulingOption): string {
+  private static generatePdfFilename(
+    schedulingOption: SchedulingOption,
+  ): string {
     if (!schedulingOption.nextRun) {
       return "Report";
     }
     const date = new Date(schedulingOption.nextRun);
     const day = String(date.getUTCDate()).padStart(2, "0");
     const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-    const year = String(date.getUTCFullYear()).slice(-2); 
+    const year = String(date.getUTCFullYear()).slice(-2);
     const formatted = `${day}.${month}.${year}`;
     return formatted + " " + schedulingOption.client.name;
   }
@@ -104,8 +110,9 @@ export class ReportsUtil {
       } catch (error) {
         logger.error(
           `Error processing ${providerConfig.provider} data:`,
-          JSON.stringify(error),
+          error,
         );
+        console.log(error);
       }
     }
 
@@ -188,6 +195,7 @@ export class ReportsUtil {
         },
         reportName: data.reportName,
         pdfFilename: data.pdfFilename ?? "",
+        colors: data.colors ?? null,
       },
     });
 
@@ -258,14 +266,22 @@ export class ReportsUtil {
       logger.error(error.response.data);
     } else {
       logger.error("Failed to process scheduled report job:", error);
+      console.error(error);
     }
   }
 
   public static async generateReportPdf(reportUuid: string): Promise<Buffer> {
-    const isProduction = process.env.ENVIRONMENT === "production";
-    const baseUrl = isProduction
-      ? "https://marklie.com"
-      : "http://localhost:4200";
+    let baseUrl: string;
+    switch (process.env.NODE_ENV) {
+      case "production":
+        baseUrl = "https://marklie.com";
+        break;
+      case "staging":
+        baseUrl = "https://staging.marklie.com";
+        break;
+      default:
+        baseUrl = "http://localhost:4200";
+    }
 
     const browser = await puppeteer.launch(config.getPuppeteerConfig());
 
