@@ -8,7 +8,7 @@ import {
   Report,
   SchedulingOption,
 } from "marklie-ts-core";
-import puppeteer from "puppeteer";
+import puppeteer, { type LaunchOptions } from "puppeteer";
 import type {
   ReportData,
   ReportJobData,
@@ -271,41 +271,132 @@ export class ReportsUtil {
   }
 
   public static async generateReportPdf(reportUuid: string): Promise<Buffer> {
-    let baseUrl: string;
-    console.log(process.env.ENVIRONMENT);
-    switch (process.env.ENVIRONMENT) {
-      case "production":
-        baseUrl = "https://marklie.com";
-        break;
-      case "staging":
-        baseUrl = "https://staging.marklie.com";
-        break;
-      default:
-        baseUrl = "http://localhost:4200";
-    }
+    // --- Resolve base URL from ENV ---
+    const env = (process.env.ENVIRONMENT || "").toLowerCase();
+    const baseUrl =
+      env === "production"
+        ? "https://marklie.com"
+        : env === "staging"
+          ? "https://staging.marklie.com"
+          : "http://localhost:4200";
 
-    const browser = await puppeteer.launch(config.getPuppeteerConfig());
+    // --- Launch options (Cloud Run friendly) ---
+    const sleep = (ms: number) =>
+      new Promise<void>((res) => setTimeout(res, ms));
+
+    // Build launch options compatible with your typings
+    const cfg = (config.getPuppeteerConfig?.() ?? {}) as LaunchOptions;
+    const launchOpts: LaunchOptions & {
+      ignoreHTTPSErrors?: boolean;
+    } = {
+      ...cfg,
+      headless: true, // <- "new" not allowed by your types
+      args: [
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--no-zygote",
+        "--single-process",
+        ...((cfg as any).args ?? []),
+      ],
+      // If your typings don’t include this, it’s ok because we augmented the type above.
+      // Flip to true temporarily if your staging cert is not valid yet.
+      ignoreHTTPSErrors: false,
+      // DO NOT set "timeout" here: it isn't a LaunchOptions prop in your types
+    };
+
+    const browser = await puppeteer.launch(launchOpts);
 
     try {
       const page = await browser.newPage();
-      console.log(`${baseUrl}/pdf-report/${reportUuid}`);
-      await page.goto(`${baseUrl}/pdf-report/${reportUuid}`, {
-        waitUntil: "domcontentloaded",
-        timeout: 30000,
-      });
-      await new Promise((res) => setTimeout(res, 4000));
 
+      // Be more "browser-like"
+      await page.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+          "Chrome/124.0.0.0 Safari/537.36",
+      );
+      await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
+
+      // Log useful signals
+      page.on("console", (m) => console.log("[page]", m.type(), m.text()));
+      page.on("requestfailed", (r) =>
+        console.error("[req failed]", r.url(), r.failure()?.errorText),
+      );
+      page.on("response", (r) => {
+        if (r.status() >= 400) console.error("[resp]", r.status(), r.url());
+      });
+
+      // Block 3rd-party noise (FB SDK, fonts, GoDaddy trackers, etc.)
+      await page.setRequestInterception(true);
+      const allowedHost = new URL(baseUrl).host;
+      page.on("request", (req) => {
+        try {
+          const { host } = new URL(req.url());
+          if (host === allowedHost) return req.continue();
+          return req.abort(); // deny cross-origin requests
+        } catch {
+          return req.continue();
+        }
+      });
+
+      page.setDefaultTimeout(120_000);
+      page.setDefaultNavigationTimeout(120_000);
+
+      const url = `${baseUrl}/pdf-report/${reportUuid}`;
+      console.log("Navigating to:", url);
+
+      // A tiny helper to retry navigation once if first attempt is blocked/challenged
+      const nav = async () => {
+        try {
+          await page.goto(url, {
+            waitUntil: "domcontentloaded",
+            timeout: 90_000,
+          });
+        } catch (e) {
+          console.warn("First navigation failed, retrying once...", e);
+          await sleep(1500);
+          await page.goto(url, {
+            waitUntil: "domcontentloaded",
+            timeout: 90_000,
+          });
+        }
+      };
+
+      await nav();
+
+      // Wait for the app to render the report DOM
+      await page.waitForSelector(".report-container", { timeout: 60_000 });
+
+      // Ensure fonts (better layout in PDF)
+      try {
+        await page.evaluate(() => (document as any).fonts?.ready);
+      } catch {}
+
+      // Give charts/animations a moment to settle
+      await sleep(1500);
+
+      // Measure robust height (fallback to a sane max)
       const dashboardHeight = await page.evaluate(() => {
         const el = document.querySelector(
           ".report-container",
         ) as HTMLElement | null;
-        return el ? el.scrollHeight : 2000;
+        const body = document.body;
+        const html = document.documentElement;
+        const docHeight = Math.max(
+          body?.scrollHeight || 0,
+          body?.offsetHeight || 0,
+          html?.clientHeight || 0,
+          html?.scrollHeight || 0,
+          html?.offsetHeight || 0,
+        );
+        const elHeight = el ? el.scrollHeight : 0;
+        return Math.max(elHeight, docHeight, 2000);
       });
 
       const pdf = await page.pdf({
         printBackground: true,
         width: "1600px",
-        height: `${dashboardHeight}px`,
+        height: `${Math.min(dashboardHeight, 30_000)}px`, // guard against absurd heights
         pageRanges: "1",
       });
 
