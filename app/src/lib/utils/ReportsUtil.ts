@@ -272,6 +272,7 @@ export class ReportsUtil {
 
   public static async generateReportPdf(reportUuid: string): Promise<Buffer> {
     let baseUrl: string;
+    console.log(process.env.ENVIRONMENT);
     switch (process.env.ENVIRONMENT) {
       case "production":
         baseUrl = "https://marklie.com";
@@ -287,6 +288,7 @@ export class ReportsUtil {
 
     try {
       const page = await browser.newPage();
+      console.log(`${baseUrl}/pdf-report/${reportUuid}`);
       await page.goto(`${baseUrl}/pdf-report/${reportUuid}`, {
         waitUntil: "domcontentloaded",
         timeout: 30000,
