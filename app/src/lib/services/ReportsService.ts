@@ -71,7 +71,10 @@ export class ReportsService {
 
     const clientTimeZone = report.metadata?.timeZone ?? "UTC";
 
+    logger.info("generating report");
     const pdfBuffer = await ReportsUtil.generateReportPdf(uuid);
+    logger.info("report generated");
+
     const filePath = ReportsUtil.generateFilePath(
       report.client.uuid,
       report.metadata?.datePreset,

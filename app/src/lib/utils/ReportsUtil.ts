@@ -289,9 +289,9 @@ export class ReportsUtil {
       const page = await browser.newPage();
       await page.goto(`${baseUrl}/pdf-report/${reportUuid}`, {
         waitUntil: "domcontentloaded",
-        timeout: 120000,
+        timeout: 30000,
       });
-      await new Promise((res) => setTimeout(res, 3000));
+      await new Promise((res) => setTimeout(res, 4000));
 
       const dashboardHeight = await page.evaluate(() => {
         const el = document.querySelector(
