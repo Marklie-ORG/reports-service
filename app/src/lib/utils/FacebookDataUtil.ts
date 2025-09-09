@@ -136,11 +136,10 @@ export class FacebookDataUtil {
               "date_start",
               "date_stop",
             ],
-            timeIncrement, // 👈 dynamic!
+            timeIncrement,
           },
         );
       }
-      console.log(insightsTimeSeries);
 
       result.graphs = this.createCollapsedBuckets(
         insightsTimeSeries,
