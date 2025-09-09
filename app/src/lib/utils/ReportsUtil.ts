@@ -110,8 +110,9 @@ export class ReportsUtil {
       } catch (error) {
         logger.error(
           `Error processing ${providerConfig.provider} data:`,
-          JSON.stringify(error),
+          error,
         );
+        console.log(error);
       }
     }
 
@@ -265,6 +266,7 @@ export class ReportsUtil {
       logger.error(error.response.data);
     } else {
       logger.error("Failed to process scheduled report job:", error);
+      console.error(error);
     }
   }
 

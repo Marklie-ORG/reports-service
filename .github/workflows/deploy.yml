@@ -54,8 +54,6 @@ jobs:
           region: ${{ env.REGION }}
           env_vars: |
             ENVIRONMENT=staging
-            REDIS_HOST=${{ secrets.STAGING_REDIS_HOST }}
-            GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}
 
   deploy-prod:
     if: github.ref == 'refs/heads/main'
