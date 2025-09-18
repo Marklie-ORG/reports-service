@@ -51,7 +51,7 @@ export class ReportsUtil {
       await this.updateLastRun(data.scheduleUuid);
 
       if (!data.reviewRequired) {
-        report.gcsUrl = await this.generateAndUploadPdf(
+        report.storage.pdfGcsUri = await this.generateAndUploadPdf(
           report.uuid,
           client.uuid,
           data.datePreset,
@@ -135,68 +135,57 @@ export class ReportsUtil {
     return client;
   }
 
-  // private static async generateAdAccountReports(
-  //   data: ReportJobData,
-  //   clientUuid: string,
-  // ): Promise<any[]> {
-  //   const adAccounts = await database.em.find(ClientFacebookAdAccount, {
-  //     client: clientUuid,
-  //   });
-  //
-  //   const reportPromises = adAccounts
-  //     .map((adAccount) => {
-  //       const metrics = data.adAccountMetrics.find(
-  //         (m) => m.adAccountId === adAccount.adAccountId,
-  //       );
-  //
-  //       if (!metrics) return null;
-  //
-  //       return FacebookDataUtil.getAllReportData(
-  //         data.organizationUuid,
-  //         adAccount.adAccountId,
-  //         data.datePreset,
-  //         metrics,
-  //       ).then((reportData) => ({
-  //         adAccountId: adAccount.adAccountId,
-  //         ...reportData,
-  //       }));
-  //     })
-  //     .filter(Boolean);
-  //
-  //   const adAccountReports = await Promise.all(reportPromises);
-  //
-  //   logger.info("Fetched all report data.");
-  //   return adAccountReports;
-  // }
-
   private static async saveReportEntity(
     data: ReportJobData,
     client: OrganizationClient,
-    generatedReportData: ReportData[],
+    generatedReportData: Record<string, any>,
   ): Promise<Report> {
+    const title = data.reportName?.trim() || "Report";
+    const pdfFilename =
+      data.pdfFilename?.trim() ||
+      `${new Date().toISOString().slice(0, 10)} ${client.name}`;
+
     const report = database.em.create(Report, {
       organization: client.organization,
       client,
-      reportType: "facebook",
-      reviewRequired: data.reviewRequired,
-      gcsUrl: "",
-      schedulingOption: data.scheduleUuid,
-      data: generatedReportData,
-      metadata: {
-        timeZone: data.timeZone,
-        datePreset: data.datePreset,
-        loomLink: "",
-        aiGeneratedContent: "",
-        userReportDescription: "",
-        messages: data.messages,
-        images: {
-          organizationLogoGsUri: data.images?.organizationLogo ?? "",
-          clientLogoGsUri: data.images?.clientLogo ?? "",
-        },
-        reportName: data.reportName,
-        pdfFilename: data.pdfFilename ?? "",
-        colors: data.colors ?? null,
+      type: "facebook",
+      review: {
+        required: !!data.reviewRequired,
+        reviewedAt: null,
       },
+      storage: {
+        pdfGcsUri: "",
+      },
+      schedule: {
+        schedulingOptionUuid: data.scheduleUuid,
+        timezone: data.timeZone,
+        lastRun: undefined,
+        nextRun: undefined,
+        jobId: undefined,
+        datePreset: data.datePreset,
+      },
+      customization: {
+        title,
+        colors: {
+          headerBg: data.colors?.headerBackgroundColor ?? "#ffffff",
+          reportBg: data.colors?.reportBackgroundColor ?? "#ffffff",
+        },
+        logos: {
+          org: { gcsUri: data.images?.organizationLogo ?? "" },
+          client: { gcsUri: data.images?.clientLogo ?? "" },
+        },
+      },
+      messaging: {
+        email: {
+          title: data.messages?.email?.title ?? "",
+          body: data.messages?.email?.body ?? "",
+        },
+        slack: data.messages?.slack ?? "",
+        whatsapp: data.messages?.whatsapp ?? "",
+        pdfFilename,
+      },
+
+      data: generatedReportData,
     });
 
     await database.em.persistAndFlush(report);
@@ -228,12 +217,12 @@ export class ReportsUtil {
     client: OrganizationClient,
     report: Report,
   ): Promise<void> {
-    const topic = report.reviewRequired
+    const topic = report.review.required
       ? "notification-report-ready"
       : "notification-send-report";
 
     const payload = {
-      reportUrl: data.reviewRequired ? "" : report.gcsUrl,
+      reportUrl: data.reviewRequired ? "" : report.storage.pdfGcsUri,
       clientUuid: client.uuid,
       organizationUuid: client.organization.uuid,
       reportUuid: report.uuid,
