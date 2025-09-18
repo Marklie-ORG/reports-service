@@ -2,9 +2,7 @@ name: Deploy to Cloud Run
 
 on:
   push:
-    branches:
-      - main
-      - staging
+    branches: [main, staging]
 
 env:
   PROJECT_ID: saas-452909
@@ -22,28 +20,27 @@ jobs:
     if: github.ref == 'refs/heads/staging'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
+      - id: auth
         uses: google-github-actions/auth@v2
         with:
+          project_id: saas-452909
           workload_identity_provider: ${{ secrets.GCP_IDENTITY_PROVIDER }}
-          service_account: 'github-deployer@saas-452909.iam.gserviceaccount.com'
+          service_account: github-deployer@saas-452909.iam.gserviceaccount.com
 
-      - name: Set up gcloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.REGISTRY }}
+        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 
-      - name: Build Docker image
+      - name: Build image
         run: |
           docker build \
-            -f ./docker/Dockerfile \
+            -f docker/Dockerfile \
             -t ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:staging-${{ github.sha }} .
 
-      - name: Push image to Artifact Registry
+      - name: Push image
         run: docker push ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:staging-${{ github.sha }}
 
       - name: Deploy to Cloud Run (staging)
@@ -51,7 +48,6 @@ jobs:
         with:
           service: ${{ env.IMAGE_NAME }}-staging
           image: ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:staging-${{ github.sha }}
-          region: ${{ env.REGION }}
           env_vars: |
             ENVIRONMENT=staging
 
@@ -59,28 +55,27 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
+      - id: auth
         uses: google-github-actions/auth@v2
         with:
+          project_id: saas-452909
           workload_identity_provider: ${{ secrets.GCP_IDENTITY_PROVIDER }}
-          service_account: 'github-deployer@saas-452909.iam.gserviceaccount.com'
+          service_account: github-deployer@saas-452909.iam.gserviceaccount.com
 
-      - name: Set up gcloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.REGISTRY }}
+        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 
-      - name: Build Docker image
+      - name: Build image
         run: |
           docker build \
-            -f ./docker/Dockerfile \
+            -f docker/Dockerfile \
             -t ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:prod-${{ github.sha }} .
 
-      - name: Push image to Artifact Registry
+      - name: Push image
         run: docker push ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:prod-${{ github.sha }}
 
       - name: Deploy to Cloud Run (production)
@@ -88,7 +83,6 @@ jobs:
         with:
           service: ${{ env.IMAGE_NAME }}
           image: ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:prod-${{ github.sha }}
-          region: ${{ env.REGION }}
           env_vars: |
             ENVIRONMENT=production
             REDIS_HOST=${{ secrets.REDIS_HOST }}
