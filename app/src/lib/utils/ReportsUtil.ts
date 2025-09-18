@@ -149,15 +149,15 @@ export class ReportsUtil {
       organization: client.organization,
       client,
       type: "facebook",
+      schedulingOption: data.scheduleUuid,
       review: {
-        required: !!data.reviewRequired,
+        required: data.reviewRequired,
         reviewedAt: null,
       },
       storage: {
         pdfGcsUri: "",
       },
       schedule: {
-        schedulingOptionUuid: data.scheduleUuid,
         timezone: data.timeZone,
         lastRun: undefined,
         nextRun: undefined,
