@@ -57,8 +57,16 @@ export class ReportQueueService {
   public async scheduleReport(
     data: ReportJobData,
     cron: string,
+    scheduleUuid: string,
+    timeZone?: string,
   ): Promise<Job | undefined> {
-    return await this.queue.addScheduledJob("generate-report", data, cron);
+    return await this.queue.addScheduledJob(
+      "generate-report",
+      data,
+      cron,
+      scheduleUuid,
+      timeZone,
+    );
   }
 
   public async enqueueReport(data: ReportJobData): Promise<Job> {

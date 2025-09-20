@@ -39,8 +39,8 @@ importers:
         specifier: ^9.0.2
         version: 9.0.2
       marklie-ts-core:
-        specifier: 1.5.6
-        version: 1.5.6(@types/node@22.10.10)(pg@8.16.3)
+        specifier: file:marklie-ts-core-1.5.7.tgz
+        version: file:marklie-ts-core-1.5.7.tgz(@types/node@22.10.10)(pg@8.16.3)
       mikro-orm:
         specifier: ^6.5.3
         version: 6.5.3
@@ -2027,8 +2027,9 @@ packages:
     resolution: {integrity: sha512-hXdUTZYIVOt1Ex//jAQi+wTZZpUpwBj/0QsOzqegb3rGMMeJiSEu5xLHnYfBrRV4RH2+OCSOO95Is/7x1WJ4bw==}
     engines: {node: '>=10'}
 
-  marklie-ts-core@1.5.6:
-    resolution: {integrity: sha512-olEapTpJMafUnUUXAGxLL4KgklIYwjJ396q1sRgTVCnMBM5AgqZFgTbdcZ4HhMhY/KVA4ZGnQjYr+F2D/2+tSA==}
+  marklie-ts-core@file:marklie-ts-core-1.5.7.tgz:
+    resolution: {integrity: sha512-v5039krbVWf/gvQOmZCDSolikfU503kKSwURCTg9f8Rn14EnY/DXLyEFDyoFhuezMlPm2DiLCGuOmITJZFVtEQ==, tarball: file:marklie-ts-core-1.5.7.tgz}
+    version: 1.5.7
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -2638,6 +2639,15 @@ packages:
   strip-final-newline@2.0.0:
     resolution: {integrity: sha512-BrpvfNAE3dcvq7ll3xVumzjKjZQ5tI1sEUIKr3Uoks0XUl45St3FlatVqef9prk4jRDzhW6WZg+3bk93y6pLjA==}
     engines: {node: '>=6'}
+
+  stripe@18.5.0:
+    resolution: {integrity: sha512-Hp+wFiEQtCB0LlNgcFh5uVyKznpDjzyUZ+CNVEf+I3fhlYvh7rZruIg+jOwzJRCpy0ZTPMjlzm7J2/M2N6d+DA==}
+    engines: {node: '>=12.*'}
+    peerDependencies:
+      '@types/node': '>=12.x.x'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
 
   strnum@1.1.2:
     resolution: {integrity: sha512-vrN+B7DBIoTTZjnPNewwhx6cBA/H+IS7rfW68n7XxC1y7uoiGQBxaKzqucGUgavX15dJgiGztLJ8vxuEzwqBdA==}
@@ -5045,7 +5055,7 @@ snapshots:
     dependencies:
       semver: 7.7.1
 
-  marklie-ts-core@1.5.6(@types/node@22.10.10)(pg@8.16.3):
+  marklie-ts-core@file:marklie-ts-core-1.5.7.tgz(@types/node@22.10.10)(pg@8.16.3):
     dependencies:
       '@google-cloud/pubsub': 4.11.0
       '@google-cloud/secret-manager': 6.1.0
@@ -5063,6 +5073,7 @@ snapshots:
       ioredis: 5.4.2
       jsonwebtoken: 9.0.2
       path-to-regexp: 8.2.0
+      stripe: 18.5.0(@types/node@22.10.10)
       uuid: 11.1.0
       winston: 3.17.0
       zod: 4.0.5
@@ -5656,6 +5667,12 @@ snapshots:
       is-plain-obj: 1.1.0
 
   strip-final-newline@2.0.0: {}
+
+  stripe@18.5.0(@types/node@22.10.10):
+    dependencies:
+      qs: 6.11.0
+    optionalDependencies:
+      '@types/node': 22.10.10
 
   strnum@1.1.2: {}
 
