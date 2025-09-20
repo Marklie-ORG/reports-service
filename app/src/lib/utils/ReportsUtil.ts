@@ -72,7 +72,7 @@ export class ReportsUtil {
   private static generatePdfFilename(
     schedulingOption: SchedulingOption,
   ): string {
-    if (!schedulingOption.nextRun) {
+    if (!schedulingOption?.nextRun) {
       return "Report";
     }
     const date = new Date(schedulingOption.nextRun);
