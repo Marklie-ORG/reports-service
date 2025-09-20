@@ -61,6 +61,8 @@ export class SchedulesService {
       const job = await ReportQueueService.getInstance().scheduleReport(
         jobPayload,
         cronExpression,
+        schedule.uuid,
+        schedule.timezone,
       );
 
       if (!job) {
@@ -68,7 +70,7 @@ export class SchedulesService {
       }
 
       const scheduledJob = new ScheduledJob();
-      scheduledJob.bullJobId = job.id as string;
+      scheduledJob.bullJobId = `sched:generate-report:${schedule.uuid}:${jobPayload.timeZone ?? ""}`;
       scheduledJob.schedulingOption = schedule;
 
       database.em.persist([schedule, scheduledJob]);
@@ -126,7 +128,12 @@ export class SchedulesService {
       const cronExpression =
         CronUtil.convertScheduleRequestToCron(scheduleOption);
 
-      const job = await queue.scheduleReport(jobPayload, cronExpression);
+      const job = await queue.scheduleReport(
+        jobPayload,
+        cronExpression,
+        schedule.uuid,
+        schedule.timezone,
+      );
 
       if (!job) {
         throw new Error("Job was not created");
@@ -379,6 +386,8 @@ export class SchedulesService {
         const newJob = await reportQueue.scheduleReport(
           jobPayload,
           cronExpression,
+          option.uuid,
+          option.timezone,
         );
         if (!newJob) {
           throw new Error(
