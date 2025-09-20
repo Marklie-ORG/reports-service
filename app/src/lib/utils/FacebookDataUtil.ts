@@ -179,97 +179,95 @@ export class FacebookDataUtil {
     today.setUTCHours(0, 0, 0, 0);
 
     const toYMD = (d: Date) => d.toISOString().slice(0, 10);
+    const daysBetween = (a: Date, b: Date) =>
+      Math.floor((b.getTime() - a.getTime()) / 86400000) + 1;
 
-    // Handle dynamic "last_Xd"
+    const endsAt =
+      preset === "today" ? today : new Date(today.getTime() - 86400000);
+
     const m = preset?.match(/^last_(\d+)d$/i);
     if (m) {
-      const days = Math.max(1, parseInt(m[1], 10));
-      const since = new Date(today);
-      since.setUTCDate(today.getUTCDate() - (days - 1));
-      return { since: toYMD(since), until: toYMD(today), days };
+      const d = Math.max(1, parseInt(m[1], 10));
+      const since = new Date(endsAt);
+      since.setUTCDate(endsAt.getUTCDate() - (d - 1));
+      return { since: toYMD(since), until: toYMD(endsAt), days: d };
     }
 
     const firstOfMonth = new Date(
-      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1),
+      Date.UTC(endsAt.getUTCFullYear(), endsAt.getUTCMonth(), 1),
     );
     const firstOfLastMonth = new Date(
-      Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1),
+      Date.UTC(endsAt.getUTCFullYear(), endsAt.getUTCMonth() - 1, 1),
     );
 
-    const currentQuarter = Math.floor(today.getUTCMonth() / 3);
+    const currentQuarter = Math.floor(endsAt.getUTCMonth() / 3);
     const firstOfThisQuarter = new Date(
-      Date.UTC(today.getUTCFullYear(), currentQuarter * 3, 1),
+      Date.UTC(endsAt.getUTCFullYear(), currentQuarter * 3, 1),
     );
     const firstOfLastQuarter = new Date(
-      Date.UTC(today.getUTCFullYear(), (currentQuarter - 1) * 3, 1),
+      Date.UTC(endsAt.getUTCFullYear(), (currentQuarter - 1) * 3, 1),
     );
 
     switch (preset) {
       case "today":
         return { since: toYMD(today), until: toYMD(today), days: 1 };
-      case "yesterday": {
-        const d = new Date(today);
-        d.setUTCDate(today.getUTCDate() - 1);
-        return { since: toYMD(d), until: toYMD(d), days: 1 };
-      }
+
+      case "yesterday":
+        return { since: toYMD(endsAt), until: toYMD(endsAt), days: 1 };
+
       case "this_month":
         return {
           since: toYMD(firstOfMonth),
-          until: toYMD(today),
-          days:
-            Math.floor((today.getTime() - firstOfMonth.getTime()) / 86400000) +
-            1,
+          until: toYMD(endsAt),
+          days: daysBetween(firstOfMonth, endsAt),
         };
+
       case "last_month": {
         const end = new Date(firstOfMonth.getTime() - 86400000);
         return {
           since: toYMD(firstOfLastMonth),
           until: toYMD(end),
-          days: Math.floor(
-            (firstOfMonth.getTime() - firstOfLastMonth.getTime()) / 86400000,
-          ),
+          days: daysBetween(firstOfLastMonth, end),
         };
       }
+
       case "this_quarter":
         return {
           since: toYMD(firstOfThisQuarter),
-          until: toYMD(today),
-          days:
-            Math.floor(
-              (today.getTime() - firstOfThisQuarter.getTime()) / 86400000,
-            ) + 1,
+          until: toYMD(endsAt),
+          days: daysBetween(firstOfThisQuarter, endsAt),
         };
+
       case "last_quarter": {
         const end = new Date(firstOfThisQuarter.getTime() - 86400000);
         return {
           since: toYMD(firstOfLastQuarter),
           until: toYMD(end),
-          days: Math.floor(
-            (firstOfThisQuarter.getTime() - firstOfLastQuarter.getTime()) /
-              86400000,
-          ),
+          days: daysBetween(firstOfLastQuarter, end),
         };
       }
-      case "last_3m":
-        return {
-          since: toYMD(new Date(today.getTime() - 90 * 86400000)),
-          until: toYMD(today),
-          days: 90,
-        };
-      case "last_90d":
-        return {
-          since: toYMD(new Date(today.getTime() - 89 * 86400000)),
-          until: toYMD(today),
-          days: 90,
-        };
+
+      case "last_3m": {
+        const since = new Date(endsAt.getTime() - 89 * 86400000);
+        return { since: toYMD(since), until: toYMD(endsAt), days: 90 };
+      }
+
+      case "last_90d": {
+        const since = new Date(endsAt.getTime() - 89 * 86400000);
+        return { since: toYMD(since), until: toYMD(endsAt), days: 90 };
+      }
+
       case "lifetime":
-        return { since: "2000-01-01", until: toYMD(today), days: 3650 };
-      default:
         return {
-          since: toYMD(new Date(today.getTime() - 6 * 86400000)),
-          until: toYMD(today),
-          days: 7,
+          since: "2000-01-01",
+          until: toYMD(endsAt),
+          days: daysBetween(new Date("2000-01-01T00:00:00Z"), endsAt),
         };
+
+      default: {
+        const since = new Date(endsAt.getTime() - 6 * 86400000);
+        return { since: toYMD(since), until: toYMD(endsAt), days: 7 };
+      }
     }
   }
 
