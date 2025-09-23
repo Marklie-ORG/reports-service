@@ -21,6 +21,7 @@ import type {
   SectionConfig,
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 import { ProviderFactory } from "../providers/ProviderFactory.js";
+import parser from "cron-parser";
 
 const logger: Log = Log.getInstance().extend("reports-util");
 const database = await Database.getInstance();
@@ -42,13 +43,15 @@ export class ReportsUtil {
       const schedulingOption = await database.em.findOne(SchedulingOption, {
         uuid: data.scheduleUuid,
       });
-      data.pdfFilename = this.generatePdfFilename(
-        schedulingOption as SchedulingOption,
-      );
+
+      if (!schedulingOption) return { success: false };
+
+      data.pdfFilename = this.generatePdfFilename(schedulingOption);
 
       const report = await this.saveReportEntity(data, client, providersData);
 
       await this.updateLastRun(data.scheduleUuid);
+      schedulingOption.nextRun = this.getNextRunDateFromCron(schedulingOption);
 
       if (!data.reviewRequired) {
         report.storage.pdfGcsUri = await this.generateAndUploadPdf(
@@ -67,6 +70,13 @@ export class ReportsUtil {
       this.handleProcessingError(e);
       return { success: false };
     }
+  }
+
+  public static getNextRunDateFromCron(schedule: SchedulingOption): Date {
+    const tz = schedule.timezone || "UTC";
+    const opts = { tz, currentDate: new Date() };
+    const it = parser.parse(schedule.cronExpression, opts);
+    return it.next().toDate();
   }
 
   private static generatePdfFilename(
