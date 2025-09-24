@@ -1,6 +1,7 @@
 import {
   ActivityLog,
   Database,
+  FACEBOOK_DATE_PRESETS,
   GCSWrapper,
   Log,
   OrganizationClient,
@@ -79,6 +80,95 @@ export class ReportsUtil {
     return it.next().toDate();
   }
 
+  public static getDateRangeForPreset(preset: FACEBOOK_DATE_PRESETS, baseDate?: Date): { start: Date; end: Date } {
+    const today = baseDate ? new Date(baseDate) : new Date();
+    const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const addDays = (d: Date, days: number) => {
+      const nd = new Date(d);
+      nd.setDate(nd.getDate() + days);
+      return nd;
+    };
+
+    const endYesterday = startOfDay(addDays(today, -1));
+
+    const rangeForLastNDays = (n: number) => {
+      const end = endYesterday;
+      const start = addDays(end, -(n - 1));
+      return { start, end };
+    };
+
+    switch (preset) {
+      case FACEBOOK_DATE_PRESETS.TODAY: {
+        const d = startOfDay(today);
+        return { start: d, end: d };
+      }
+      case FACEBOOK_DATE_PRESETS.YESTERDAY: {
+        const d = endYesterday;
+        return { start: d, end: d };
+      }
+      case FACEBOOK_DATE_PRESETS.LAST_3D:
+        return rangeForLastNDays(3);
+      case FACEBOOK_DATE_PRESETS.LAST_7D:
+        return rangeForLastNDays(7);
+      case FACEBOOK_DATE_PRESETS.LAST_14D:
+        return rangeForLastNDays(14);
+      case FACEBOOK_DATE_PRESETS.LAST_28D:
+        return rangeForLastNDays(28);
+      case FACEBOOK_DATE_PRESETS.LAST_30D:
+        return rangeForLastNDays(30);
+      case FACEBOOK_DATE_PRESETS.LAST_90D:
+        return rangeForLastNDays(90);
+      case FACEBOOK_DATE_PRESETS.THIS_MONTH: {
+        const start = new Date(today.getFullYear(), today.getMonth(), 1);
+        const end = endYesterday;
+        return { start, end };
+      }
+      case FACEBOOK_DATE_PRESETS.LAST_MONTH: {
+        const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const end = new Date(today.getFullYear(), today.getMonth(), 0);
+        return { start, end };
+      }
+      case FACEBOOK_DATE_PRESETS.THIS_QUARTER: {
+        const quarterStartMonth = Math.floor(today.getMonth() / 3) * 3;
+        const start = new Date(today.getFullYear(), quarterStartMonth, 1);
+        const end = endYesterday;
+        return { start, end };
+      }
+      case FACEBOOK_DATE_PRESETS.LAST_QUARTER: {
+        const thisQuarterStartMonth = Math.floor(today.getMonth() / 3) * 3;
+        const start = new Date(today.getFullYear(), thisQuarterStartMonth - 3, 1);
+        const end = new Date(today.getFullYear(), thisQuarterStartMonth, 0);
+        return { start, end };
+      }
+      case FACEBOOK_DATE_PRESETS.THIS_YEAR: {
+        const start = new Date(today.getFullYear(), 0, 1);
+        const end = endYesterday;
+        return { start, end };
+      }
+      case FACEBOOK_DATE_PRESETS.LAST_YEAR: {
+        const start = new Date(today.getFullYear() - 1, 0, 1);
+        const end = new Date(today.getFullYear() - 1, 11, 31);
+        return { start, end };
+      }
+      case FACEBOOK_DATE_PRESETS.MAXIMUM:
+      default: {
+        return rangeForLastNDays(7);
+      }
+    }
+  }
+
+  private static formatDateShort(d: Date): string {
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(-2);
+    return `${dd}.${mm}.${yy}`;
+  }
+
+  public static getDateRangeTextForPreset(preset: FACEBOOK_DATE_PRESETS, baseDate?: Date): string {
+    const { start, end } = this.getDateRangeForPreset(preset, baseDate);
+    return `${this.formatDateShort(start)} - ${this.formatDateShort(end)}`;
+  }
+
   private static generatePdfFilename(
     schedulingOption: SchedulingOption,
   ): string {
@@ -90,7 +180,12 @@ export class ReportsUtil {
     const month = String(date.getUTCMonth() + 1).padStart(2, "0");
     const year = String(date.getUTCFullYear()).slice(-2);
     const formatted = `${day}.${month}.${year}`;
-    return formatted + " " + schedulingOption.client.name;
+
+    console.log(schedulingOption)
+
+    const dateRangeText = this.getDateRangeTextForPreset(schedulingOption.datePreset, schedulingOption.nextRun);
+
+    return formatted + " " + schedulingOption.client.name + " (" + dateRangeText + ")";
   }
 
   private static async generateProvidersReports(
