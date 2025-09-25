@@ -45,8 +45,12 @@ export class ReportsUtil {
         uuid: data.scheduleUuid,
       });
 
-      if (!schedulingOption) return { success: false };
-
+      if (!schedulingOption) {
+        logger.warn(
+          `Scheduling option ${data.scheduleUuid} not found or inactive. Skipping job.`,
+        );
+        return { success: false };
+      }
       data.pdfFilename = this.generatePdfFilename(schedulingOption);
 
       const report = await this.saveReportEntity(data, client, providersData);

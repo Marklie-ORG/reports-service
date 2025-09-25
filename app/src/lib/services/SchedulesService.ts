@@ -2,6 +2,7 @@ import { ReportsUtil } from "../utils/ReportsUtil.js";
 import {
   Database,
   GCSWrapper,
+  Log,
   MarklieError,
   OrganizationClient,
   ScheduledJob,
@@ -26,6 +27,7 @@ import {
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 const database = await Database.getInstance();
+const logger = Log.getInstance().extend("schedules-service");
 
 export class SchedulesService {
   async scheduleReport(
@@ -95,61 +97,68 @@ export class SchedulesService {
     uuid: string,
     scheduleOption: ReportScheduleRequest,
   ): Promise<string | void> {
-    const schedule = await database.em.findOne(
-      SchedulingOption,
-      { uuid },
-      {
-        populate: ["scheduledJob", "client", "client.organization"],
-        refresh: true,
-      },
-    );
-    if (!schedule) {
-      throw MarklieError.notFound("Schedule was not found");
-    }
+    return await database.em.transactional(async (em) => {
+      const schedule = await em.findOne(
+        SchedulingOption,
+        { uuid },
+        {
+          populate: ["scheduledJob", "client", "client.organization"],
+          refresh: true,
+        },
+      );
 
-    const queue = ReportQueueService.getInstance();
+      if (!schedule) {
+        throw MarklieError.notFound("Schedule was not found");
+      }
 
-    const cronExpression =
-      CronUtil.convertScheduleRequestToCron(scheduleOption);
+      const queue = ReportQueueService.getInstance();
+      const cronExpression =
+        CronUtil.convertScheduleRequestToCron(scheduleOption);
 
-    this.assignScheduleFields(schedule, scheduleOption, schedule.client);
+      const oldJobId = schedule.scheduledJob?.bullJobId;
 
-    await database.em.persistAndFlush(schedule);
+      this.assignScheduleFields(schedule, scheduleOption, schedule.client);
 
-    if (schedule.scheduledJob?.bullJobId) {
-      await queue.removeScheduledJob(schedule.scheduledJob.bullJobId);
-    }
+      const jobPayload = this.buildJobPayload(
+        scheduleOption,
+        schedule.client,
+        schedule.uuid,
+      );
 
-    const jobPayload = this.buildJobPayload(
-      scheduleOption,
-      schedule.client,
-      schedule.uuid,
-    );
+      const job = await queue.scheduleReport(
+        jobPayload,
+        cronExpression,
+        schedule.uuid,
+        schedule.timezone,
+      );
 
-    const job = await queue.scheduleReport(
-      jobPayload,
-      cronExpression,
-      schedule.uuid,
-      schedule.timezone,
-    );
-    if (!job) {
-      throw MarklieError.internal("Job was not created");
-    }
+      if (!job || !job.id || typeof job.id !== "string") {
+        throw MarklieError.internal("Job was not created or has invalid ID");
+      }
 
-    let scheduledJob = schedule.scheduledJob;
-    if (!scheduledJob) {
-      scheduledJob = new ScheduledJob();
-      scheduledJob.schedulingOption = schedule;
-      schedule.scheduledJob = scheduledJob;
-    }
-    scheduledJob.bullJobId = job.id as string;
-    scheduledJob.lastRunAt = null;
+      let scheduledJob = schedule.scheduledJob;
+      if (!scheduledJob) {
+        scheduledJob = new ScheduledJob();
+        scheduledJob.schedulingOption = schedule;
+        schedule.scheduledJob = scheduledJob;
+      }
 
-    schedule.nextRun = CronUtil.getNextRunDateFromCron(schedule);
+      scheduledJob.bullJobId = job.id;
+      scheduledJob.lastRunAt = null;
+      schedule.nextRun = CronUtil.getNextRunDateFromCron(schedule);
 
-    await database.em.persistAndFlush(schedule);
+      await em.persistAndFlush([schedule, scheduledJob]);
 
-    return cronExpression;
+      if (oldJobId) {
+        try {
+          await queue.removeScheduledJob(oldJobId);
+        } catch (error) {
+          logger.warn(`Failed to remove old job ${oldJobId}:`, error);
+        }
+      }
+
+      return cronExpression;
+    });
   }
 
   async getSchedulingOption(uuid: string): Promise<SchedulingOptionWithImages> {
