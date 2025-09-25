@@ -22,7 +22,7 @@ import type {
   SectionConfig,
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 import { ProviderFactory } from "../providers/ProviderFactory.js";
-import parser from "cron-parser";
+import { CronExpressionParser } from "cron-parser";
 
 const logger: Log = Log.getInstance().extend("reports-util");
 const database = await Database.getInstance();
@@ -74,15 +74,35 @@ export class ReportsUtil {
   }
 
   public static getNextRunDateFromCron(schedule: SchedulingOption): Date {
-    const tz = schedule.timezone || "UTC";
-    const opts = { tz, currentDate: new Date() };
-    const it = parser.parse(schedule.cronExpression, opts);
-    return it.next().toDate();
+    if (!schedule.cronExpression) {
+      throw new Error("cronExpression is required");
+    }
+
+    const opts = {
+      currentDate: new Date(),
+      tz: schedule.timezone || "UTC",
+    };
+
+    try {
+      const interval = CronExpressionParser.parse(
+        schedule.cronExpression,
+        opts,
+      );
+      return interval.next().toDate();
+    } catch (err) {
+      throw new Error(
+        `Invalid cronExpression "${schedule.cronExpression}": ${(err as Error).message}`,
+      );
+    }
   }
 
-  public static getDateRangeForPreset(preset: FACEBOOK_DATE_PRESETS, baseDate?: Date): { start: Date; end: Date } {
+  public static getDateRangeForPreset(
+    preset: FACEBOOK_DATE_PRESETS,
+    baseDate?: Date,
+  ): { start: Date; end: Date } {
     const today = baseDate ? new Date(baseDate) : new Date();
-    const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const startOfDay = (d: Date) =>
+      new Date(d.getFullYear(), d.getMonth(), d.getDate());
     const addDays = (d: Date, days: number) => {
       const nd = new Date(d);
       nd.setDate(nd.getDate() + days);
@@ -136,7 +156,11 @@ export class ReportsUtil {
       }
       case FACEBOOK_DATE_PRESETS.LAST_QUARTER: {
         const thisQuarterStartMonth = Math.floor(today.getMonth() / 3) * 3;
-        const start = new Date(today.getFullYear(), thisQuarterStartMonth - 3, 1);
+        const start = new Date(
+          today.getFullYear(),
+          thisQuarterStartMonth - 3,
+          1,
+        );
         const end = new Date(today.getFullYear(), thisQuarterStartMonth, 0);
         return { start, end };
       }
@@ -158,13 +182,16 @@ export class ReportsUtil {
   }
 
   private static formatDateShort(d: Date): string {
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
     const yy = String(d.getFullYear()).slice(-2);
     return `${dd}.${mm}.${yy}`;
   }
 
-  public static getDateRangeTextForPreset(preset: FACEBOOK_DATE_PRESETS, baseDate?: Date): string {
+  public static getDateRangeTextForPreset(
+    preset: FACEBOOK_DATE_PRESETS,
+    baseDate?: Date,
+  ): string {
     const { start, end } = this.getDateRangeForPreset(preset, baseDate);
     return `${this.formatDateShort(start)} - ${this.formatDateShort(end)}`;
   }
@@ -181,11 +208,21 @@ export class ReportsUtil {
     const year = String(date.getUTCFullYear()).slice(-2);
     const formatted = `${day}.${month}.${year}`;
 
-    console.log(schedulingOption)
+    console.log(schedulingOption);
 
-    const dateRangeText = this.getDateRangeTextForPreset(schedulingOption.datePreset, schedulingOption.nextRun);
+    const dateRangeText = this.getDateRangeTextForPreset(
+      schedulingOption.datePreset,
+      schedulingOption.nextRun,
+    );
 
-    return formatted + " " + schedulingOption.client.name + " (" + dateRangeText + ")";
+    return (
+      formatted +
+      " " +
+      schedulingOption.client.name +
+      " (" +
+      dateRangeText +
+      ")"
+    );
   }
 
   private static async generateProvidersReports(

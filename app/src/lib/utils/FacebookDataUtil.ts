@@ -164,6 +164,7 @@ export class FacebookDataUtil {
         selectedAds,
         organizationUuid,
         adAccountId,
+        adAccountConfig.ads.adsSettings,
       );
     }
 
@@ -599,25 +600,27 @@ export class FacebookDataUtil {
         "No campaigns found with priority metrics, returning all campaigns",
       );
       filteredCampaigns = campaigns;
-      sortMetric = "spend"; // Keep default for sorting
+      sortMetric = "spend";
     }
 
     const sortedCampaigns = filteredCampaigns.sort((a, b) => {
       const valueA = Number(a[sortMetric] || 0);
       const valueB = Number(b[sortMetric] || 0);
-      return valueB - valueA; // Descending order (highest first)
+      return valueB - valueA;
     });
 
-    // Apply the limit
-    const topCampaigns = sortedCampaigns.slice(0, limit);
-    return topCampaigns;
+    return sortedCampaigns.slice(0, limit);
   }
 
-  private static getBest10AdsByROAS(ads: any[], metric: string): any[] {
+  private static getBestAdsByROAS(
+    ads: any[],
+    metric: string = "impressions",
+    limit: number = 10,
+  ): any[] {
     return ads
       .filter((ad) => ad[metric])
       .sort((a, b) => parseFloat(b[metric]) - parseFloat(a[metric]))
-      .slice(0, 10);
+      .slice(0, limit);
   }
 
   private static async processAds(
@@ -625,96 +628,146 @@ export class FacebookDataUtil {
     selectedAds: string[],
     organizationUuid: string,
     adAccountId: string,
+    adsSettings?: { numberOfAds: number; sortAdsBy: string },
   ): Promise<ReportDataAd[]> {
-    const shownAds = this.getBest10AdsByROAS(adsInsights, "impressions");
+    const shownAds = this.getBestAdsByROAS(
+      adsInsights,
+      adsSettings?.sortAdsBy,
+      adsSettings?.numberOfAds,
+    );
     const api = await FacebookApi.create(organizationUuid, adAccountId);
 
-    const reportAds: ReportDataAd[] = shownAds.map((ad) => ({
-      adId: ad.adId || ad.ad_id,
-      adCreativeId: ad.adCreativeId || "",
-      thumbnailUrl: ad.thumbnailUrl || "",
-      sourceUrl: ad.sourceUrl || "",
-      ad_name: ad.ad_name || "",
-      data: this.extractMetricsFromInsight(ad, selectedAds, []),
+    const creativeByAdId = new Map<string, any>();
+    const igMediaIds = new Set<string>();
+    const storyIdsByPage = new Map<string, string[]>();
+
+    for (const r of shownAds) {
+      const cr = r.creative || {};
+      const adId = r.ad_id || r.adId;
+      creativeByAdId.set(adId, cr);
+
+      const storyId = cr.effective_object_story_id as string | undefined;
+      const pageId = this.extractPageIdFromStoryId(storyId);
+      if (pageId && storyId) {
+        if (!storyIdsByPage.has(pageId)) storyIdsByPage.set(pageId, []);
+        storyIdsByPage.get(pageId)!.push(storyId);
+      }
+
+      const mediaId = cr.effective_instagram_media_id as string | undefined;
+      if (mediaId) igMediaIds.add(mediaId);
+    }
+
+    const reportAds: ReportDataAd[] = shownAds.map((row) => ({
+      adId: row.ad_id || row.adId,
+      adCreativeId: (row.creative?.id as string) || "",
+      thumbnailUrl: row.creative?.thumbnail_url || "",
+      sourceUrl: row.creative?.instagram_permalink_url || "",
+      ad_name: row.ad_name || "",
+      data: this.extractMetricsFromInsight(row, selectedAds, []),
     }));
 
-    // --- Enrich with Creative IDs ---
-    const adIds = shownAds.map((a) => a.adId || a.ad_id);
-    const adEntities = await api.getEntitiesBatch(adIds, [
-      "id",
-      "creative{id}",
-    ]);
-
-    const creativeIds = adEntities
-      .map((ad: any) => ad.creative?.id)
-      .filter(Boolean);
-
-    const creativeAssets = await api.getEntitiesBatch(creativeIds, [
-      "id",
-      "effective_instagram_media_id",
-      "effective_object_story_id",
-      "thumbnail_url",
-      "instagram_permalink_url",
-    ]);
-
-    reportAds.forEach((ad) => {
-      const adEntity = adEntities.find((e: any) => e.id === ad.adId);
-      ad.adCreativeId = adEntity?.creative?.id || "";
-    });
-
-    await Promise.all(
-      reportAds.map(async (reportAd) => {
-        const creativeAsset = creativeAssets.find(
-          (c: { id: string }) => c.id === reportAd.adCreativeId,
-        );
-        if (!creativeAsset) return;
-
-        const {
-          effective_instagram_media_id,
-          effective_object_story_id,
-          thumbnail_url,
-          instagram_permalink_url,
-        } = creativeAsset;
-
-        if (effective_instagram_media_id) {
-          const igMedia = await api.getInstagramMedia(
-            effective_instagram_media_id,
-          );
-
-          if (igMedia.media_type === "CAROUSEL_ALBUM") {
-            const children = await api.getInstagramCarouselChildren(
-              effective_instagram_media_id,
-            );
-
-            const firstChild = children?.data?.[0];
-            if (firstChild) {
-              const childMedia = await api.getInstagramMedia(firstChild.id);
-              reportAd.thumbnailUrl =
-                childMedia.media_type === "IMAGE" && !childMedia.thumbnail_url
-                  ? childMedia.media_url
-                  : childMedia.thumbnail_url;
-              reportAd.sourceUrl = childMedia.permalink || igMedia.permalink;
-            }
-          } else {
-            reportAd.thumbnailUrl =
-              igMedia.media_type === "IMAGE" && !igMedia.thumbnail_url
-                ? igMedia.media_url
-                : igMedia.thumbnail_url;
-            reportAd.sourceUrl = igMedia.permalink;
-          }
-        } else if (effective_object_story_id) {
-          const postId = effective_object_story_id.split("_")[1];
-          const post = await api.getPost(postId);
-          reportAd.thumbnailUrl =
-            post.adcreatives?.data?.[0]?.thumbnail_url || thumbnail_url || "";
-          reportAd.sourceUrl =
-            post.permalink_url || instagram_permalink_url || "";
-        } else {
-          reportAd.thumbnailUrl = thumbnail_url || "";
-        }
-      }),
+    const managedPages = await api.getManagedPages();
+    const tokenByPage = new Map(
+      managedPages.map((p) => [p.id, p.access_token]),
     );
 
+    const igById = new Map<string, any>();
+    const firstPageToken = managedPages[0]?.access_token;
+    if (igMediaIds.size && firstPageToken) {
+      try {
+        const ig = await api.getInstagramMediaBatchWithToken(
+          firstPageToken,
+          [...igMediaIds],
+          [
+            "id",
+            "media_type",
+            "media_url",
+            "thumbnail_url",
+            "permalink",
+            "children{media_type,media_url,thumbnail_url,permalink}",
+          ],
+        );
+        for (const m of ig || []) igById.set(m.id, m);
+      } catch {}
+    }
+
+    const postById = new Map<string, any>();
+    for (const [pageId, storyIds] of storyIdsByPage.entries()) {
+      const token = tokenByPage.get(pageId);
+      if (!token) continue;
+      const unique = [...new Set(storyIds)];
+      try {
+        const posts = await api.getEntitiesBatchWithToken(token, unique, [
+          "id",
+          "permalink_url",
+          "full_picture",
+          "attachments{media_type,media,url,subattachments{media_type,media,url}}",
+        ]);
+        for (const p of posts || []) postById.set(p.id, p);
+      } catch {}
+    }
+
+    for (const ra of reportAds) {
+      const cr = creativeByAdId.get(ra.adId);
+
+      if (cr?.effective_instagram_media_id) {
+        const media = igById.get(cr.effective_instagram_media_id);
+        if (media) {
+          if (
+            media.media_type === "CAROUSEL_ALBUM" &&
+            media.children?.data?.length
+          ) {
+            const first = media.children.data[0];
+            ra.thumbnailUrl =
+              (first.media_type === "IMAGE" && !first.thumbnail_url
+                ? first.media_url
+                : first.thumbnail_url) || ra.thumbnailUrl;
+            ra.sourceUrl = first.permalink || media.permalink || ra.sourceUrl;
+          } else {
+            ra.thumbnailUrl =
+              (media.media_type === "IMAGE" && !media.thumbnail_url
+                ? media.media_url
+                : media.thumbnail_url) || ra.thumbnailUrl;
+            ra.sourceUrl = media.permalink || ra.sourceUrl;
+          }
+          continue;
+        }
+      }
+
+      if (cr?.effective_object_story_id) {
+        const post = postById.get(cr.effective_object_story_id);
+        if (post) {
+          const pickFromAttachments = (att: any): string | null => {
+            if (!att) return null;
+            const first = att.data?.[0];
+            if (!first) return null;
+            return (
+              first.media?.image?.src ||
+              first.media?.source ||
+              first.media?.src ||
+              first.url ||
+              first.subattachments?.data?.[0]?.media?.image?.src ||
+              first.subattachments?.data?.[0]?.media?.source ||
+              first.subattachments?.data?.[0]?.media?.src ||
+              first.subattachments?.data?.[0]?.url ||
+              null
+            );
+          };
+          ra.thumbnailUrl =
+            pickFromAttachments(post.attachments) ||
+            post.full_picture ||
+            ra.thumbnailUrl;
+          ra.sourceUrl = post.permalink_url || ra.sourceUrl;
+        }
+      }
+    }
+
     return reportAds;
+  }
+
+  private static extractPageIdFromStoryId(storyId?: string): string | null {
+    if (!storyId) return null;
+    const m = String(storyId).match(/^(\d+)_\d+$/);
+    return m ? m[1] : null;
   }
 }

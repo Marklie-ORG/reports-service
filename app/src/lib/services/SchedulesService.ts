@@ -427,7 +427,7 @@ export class SchedulesService {
       .map((acc) => acc.adAccountId);
 
     const customMetricsByAdAccount =
-      await api.getCustomMetricsForAdAccounts(adAccountIds);
+      await api.getCustomConversionsForAdAccounts(adAccountIds);
 
     const result: {
       adAccountId: string;
