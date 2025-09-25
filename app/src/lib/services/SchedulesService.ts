@@ -2,7 +2,6 @@ import { ReportsUtil } from "../utils/ReportsUtil.js";
 import {
   Database,
   GCSWrapper,
-  Log,
   MarklieError,
   OrganizationClient,
   ScheduledJob,
@@ -27,7 +26,6 @@ import {
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 const database = await Database.getInstance();
-const logger = Log.getInstance().extend("reports-service");
 
 export class SchedulesService {
   async scheduleReport(
@@ -97,63 +95,61 @@ export class SchedulesService {
     uuid: string,
     scheduleOption: ReportScheduleRequest,
   ): Promise<string | void> {
-    try {
-      const schedule = await database.em.findOne(
-        SchedulingOption,
-        {
-          uuid,
-        },
-        { populate: ["scheduledJob", "client"] },
-      );
-
-      if (!schedule) {
-        throw new Error(`SchedulingOption ${uuid} not found`);
-      }
-
-      const queue = ReportQueueService.getInstance();
-
-      if (schedule.scheduledJob?.bullJobId) {
-        await queue.removeScheduledJob(schedule.scheduledJob.bullJobId);
-      }
-
-      const client = schedule.client;
-
-      this.assignScheduleFields(schedule, scheduleOption, client);
-
-      const jobPayload = this.buildJobPayload(
-        scheduleOption,
-        client,
-        schedule.uuid,
-      );
-      const cronExpression =
-        CronUtil.convertScheduleRequestToCron(scheduleOption);
-
-      const job = await queue.scheduleReport(
-        jobPayload,
-        cronExpression,
-        schedule.uuid,
-        schedule.timezone,
-      );
-
-      if (!job) {
-        throw new Error("Job was not created");
-      }
-
-      let scheduledJob = schedule.scheduledJob;
-      if (!scheduledJob) {
-        scheduledJob = new ScheduledJob();
-        scheduledJob.schedulingOption = schedule;
-        schedule.scheduledJob = scheduledJob;
-      }
-
-      scheduledJob.bullJobId = job.id as string;
-      scheduledJob.lastRunAt = null;
-
-      await database.em.persistAndFlush(schedule);
-      return cronExpression;
-    } catch (e) {
-      logger.error("Failed to update scheduling option:", e);
+    const schedule = await database.em.findOne(
+      SchedulingOption,
+      { uuid },
+      {
+        populate: ["scheduledJob", "client", "client.organization"],
+        refresh: true,
+      },
+    );
+    if (!schedule) {
+      throw MarklieError.notFound("Schedule was not found");
     }
+
+    const queue = ReportQueueService.getInstance();
+
+    const cronExpression =
+      CronUtil.convertScheduleRequestToCron(scheduleOption);
+
+    this.assignScheduleFields(schedule, scheduleOption, schedule.client);
+
+    await database.em.persistAndFlush(schedule);
+
+    if (schedule.scheduledJob?.bullJobId) {
+      await queue.removeScheduledJob(schedule.scheduledJob.bullJobId);
+    }
+
+    const jobPayload = this.buildJobPayload(
+      scheduleOption,
+      schedule.client,
+      schedule.uuid,
+    );
+
+    const job = await queue.scheduleReport(
+      jobPayload,
+      cronExpression,
+      schedule.uuid,
+      schedule.timezone,
+    );
+    if (!job) {
+      throw MarklieError.internal("Job was not created");
+    }
+
+    let scheduledJob = schedule.scheduledJob;
+    if (!scheduledJob) {
+      scheduledJob = new ScheduledJob();
+      scheduledJob.schedulingOption = schedule;
+      schedule.scheduledJob = scheduledJob;
+    }
+    scheduledJob.bullJobId = job.id as string;
+    scheduledJob.lastRunAt = null;
+
+    schedule.nextRun = CronUtil.getNextRunDateFromCron(schedule);
+
+    await database.em.persistAndFlush(schedule);
+
+    return cronExpression;
   }
 
   async getSchedulingOption(uuid: string): Promise<SchedulingOptionWithImages> {

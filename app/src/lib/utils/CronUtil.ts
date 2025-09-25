@@ -1,4 +1,6 @@
 import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces";
+import { SchedulingOption } from "marklie-ts-core";
+import { CronExpressionParser } from "cron-parser";
 
 export class CronUtil {
   private static mapDayOfWeekToCron(day: string): string {
@@ -19,6 +21,29 @@ export class CronUtil {
         return "SUN";
       default:
         return "";
+    }
+  }
+
+  public static getNextRunDateFromCron(schedule: SchedulingOption): Date {
+    if (!schedule.cronExpression) {
+      throw new Error("cronExpression is required");
+    }
+
+    const opts = {
+      currentDate: new Date(),
+      tz: schedule.timezone || "UTC",
+    };
+
+    try {
+      const interval = CronExpressionParser.parse(
+        schedule.cronExpression,
+        opts,
+      );
+      return interval.next().toDate();
+    } catch (err) {
+      throw new Error(
+        `Invalid cronExpression "${schedule.cronExpression}": ${(err as Error).message}`,
+      );
     }
   }
 

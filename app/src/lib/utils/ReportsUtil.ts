@@ -22,7 +22,7 @@ import type {
   SectionConfig,
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 import { ProviderFactory } from "../providers/ProviderFactory.js";
-import { CronExpressionParser } from "cron-parser";
+import { CronUtil } from "./CronUtil.js";
 
 const logger: Log = Log.getInstance().extend("reports-util");
 const database = await Database.getInstance();
@@ -52,7 +52,8 @@ export class ReportsUtil {
       const report = await this.saveReportEntity(data, client, providersData);
 
       await this.updateLastRun(data.scheduleUuid);
-      schedulingOption.nextRun = this.getNextRunDateFromCron(schedulingOption);
+      schedulingOption.nextRun =
+        CronUtil.getNextRunDateFromCron(schedulingOption);
 
       if (!data.reviewRequired) {
         report.storage.pdfGcsUri = await this.generateAndUploadPdf(
@@ -70,29 +71,6 @@ export class ReportsUtil {
     } catch (e) {
       this.handleProcessingError(e);
       return { success: false };
-    }
-  }
-
-  public static getNextRunDateFromCron(schedule: SchedulingOption): Date {
-    if (!schedule.cronExpression) {
-      throw new Error("cronExpression is required");
-    }
-
-    const opts = {
-      currentDate: new Date(),
-      tz: schedule.timezone || "UTC",
-    };
-
-    try {
-      const interval = CronExpressionParser.parse(
-        schedule.cronExpression,
-        opts,
-      );
-      return interval.next().toDate();
-    } catch (err) {
-      throw new Error(
-        `Invalid cronExpression "${schedule.cronExpression}": ${(err as Error).message}`,
-      );
     }
   }
 
