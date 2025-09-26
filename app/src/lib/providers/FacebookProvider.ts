@@ -267,7 +267,7 @@ export class FacebookProvider implements AdsProvider {
   async getCustomMetrics(
     accountIds: string[],
   ): Promise<Record<string, { id: string; name: string }[]>> {
-    return this.api!.getCustomMetricsForAdAccounts(accountIds);
+    return this.api!.getCustomConversionsForAdAccounts(accountIds);
   }
 }
 
@@ -302,6 +302,7 @@ export function convertSectionsToScheduledConfigs(
         order: account.order,
         metrics: account.metrics,
         customMetrics: account.customMetrics ?? undefined,
+        adsSettings: account.adsSettings ?? undefined,
       };
 
       const existing = map.get(adAccountId)!;
@@ -324,7 +325,6 @@ export function convertSectionsToScheduledConfigs(
     }
   }
 
-  // Return ad accounts in the order they were originally added
   return adAccountOrder.map((id) => map.get(id)!);
 }
 

@@ -27,7 +27,7 @@ import {
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 const database = await Database.getInstance();
-const logger = Log.getInstance().extend("reports-service");
+const logger = Log.getInstance().extend("schedules-service");
 
 export class SchedulesService {
   async scheduleReport(
@@ -97,36 +97,33 @@ export class SchedulesService {
     uuid: string,
     scheduleOption: ReportScheduleRequest,
   ): Promise<string | void> {
-    try {
-      const schedule = await database.em.findOne(
+    return await database.em.transactional(async (em) => {
+      const schedule = await em.findOne(
         SchedulingOption,
+        { uuid },
         {
-          uuid,
+          populate: ["scheduledJob", "client", "client.organization"],
+          refresh: true,
         },
-        { populate: ["scheduledJob", "client"] },
       );
 
       if (!schedule) {
-        throw new Error(`SchedulingOption ${uuid} not found`);
+        throw MarklieError.notFound("Schedule was not found");
       }
 
       const queue = ReportQueueService.getInstance();
+      const cronExpression =
+        CronUtil.convertScheduleRequestToCron(scheduleOption);
 
-      if (schedule.scheduledJob?.bullJobId) {
-        await queue.removeScheduledJob(schedule.scheduledJob.bullJobId);
-      }
+      const oldJobId = schedule.scheduledJob?.bullJobId;
 
-      const client = schedule.client;
-
-      this.assignScheduleFields(schedule, scheduleOption, client);
+      this.assignScheduleFields(schedule, scheduleOption, schedule.client);
 
       const jobPayload = this.buildJobPayload(
         scheduleOption,
-        client,
+        schedule.client,
         schedule.uuid,
       );
-      const cronExpression =
-        CronUtil.convertScheduleRequestToCron(scheduleOption);
 
       const job = await queue.scheduleReport(
         jobPayload,
@@ -135,8 +132,8 @@ export class SchedulesService {
         schedule.timezone,
       );
 
-      if (!job) {
-        throw new Error("Job was not created");
+      if (!job || !job.id || typeof job.id !== "string") {
+        throw MarklieError.internal("Job was not created or has invalid ID");
       }
 
       let scheduledJob = schedule.scheduledJob;
@@ -146,14 +143,22 @@ export class SchedulesService {
         schedule.scheduledJob = scheduledJob;
       }
 
-      scheduledJob.bullJobId = job.id as string;
+      scheduledJob.bullJobId = job.id;
       scheduledJob.lastRunAt = null;
+      schedule.nextRun = CronUtil.getNextRunDateFromCron(schedule);
 
-      await database.em.persistAndFlush(schedule);
+      await em.persistAndFlush([schedule, scheduledJob]);
+
+      if (oldJobId) {
+        try {
+          await queue.removeScheduledJob(oldJobId);
+        } catch (error) {
+          logger.warn(`Failed to remove old job ${oldJobId}:`, error);
+        }
+      }
+
       return cronExpression;
-    } catch (e) {
-      logger.error("Failed to update scheduling option:", e);
-    }
+    });
   }
 
   async getSchedulingOption(uuid: string): Promise<SchedulingOptionWithImages> {
@@ -427,7 +432,7 @@ export class SchedulesService {
       .map((acc) => acc.adAccountId);
 
     const customMetricsByAdAccount =
-      await api.getCustomMetricsForAdAccounts(adAccountIds);
+      await api.getCustomConversionsForAdAccounts(adAccountIds);
 
     const result: {
       adAccountId: string;

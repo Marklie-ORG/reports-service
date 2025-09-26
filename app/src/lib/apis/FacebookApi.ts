@@ -14,13 +14,17 @@ const logger = Log.getInstance().extend("facebook-api");
 const config = ReportsConfigService.getInstance();
 
 export class FacebookApi {
-  static readonly MAX_POLL_ATTEMPTS = 100;
-  static readonly POLL_INTERVAL_MS = 6000;
+  static readonly MAX_POLL_ATTEMPTS = 60;
+  static readonly POLL_INTERVAL_MS = 8000;
   static readonly BATCH_SIZE = 50;
   static readonly MAX_RETRIES = 3;
 
   private circuitBreaker: CircuitBreaker;
   private api: AxiosInstance;
+
+  private managedPagesPromise?: Promise<
+    Array<{ id: string; name: string; access_token: string }>
+  >;
 
   private constructor(
     token: string,
@@ -64,11 +68,13 @@ export class FacebookApi {
       (error: AxiosError) => {
         const fbError = error.response?.data as any;
         const fbCode = fbError?.error?.code;
+        const fbSub = fbError?.error?.error_subcode;
         const fbMessage = fbError?.error?.message || "";
 
         logger.error("Facebook API Error:", {
           status: error.response?.status,
           fbCode,
+          fbSub,
           fbMessage,
           url: error.config?.url,
         });
@@ -82,7 +88,13 @@ export class FacebookApi {
           case 100:
             throw MarklieError.validation(
               `Facebook API validation error: ${fbMessage}`,
-              { fbCode },
+              { fbCode, fbSub },
+            );
+          case 4:
+            throw MarklieError.externalApi(
+              "Facebook API rate limit",
+              error,
+              "facebook-api",
             );
           default:
             throw MarklieError.externalApi(
@@ -101,44 +113,52 @@ export class FacebookApi {
     return this.circuitBreaker.execute(operation);
   }
 
-  private async retryOperation<T>(
-    operation: () => Promise<T>,
-    maxRetries: number = FacebookApi.MAX_RETRIES,
-    delay: number = 1000,
-  ): Promise<T> {
-    let lastError: Error;
+  // private async retryOperation<T>(
+  //   operation: () => Promise<T>,
+  //   maxRetries: number = FacebookApi.MAX_RETRIES,
+  //   delay: number = 1000,
+  // ): Promise<T> {
+  //   let lastError: Error;
+  //
+  //   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  //     try {
+  //       return await operation();
+  //     } catch (error) {
+  //       lastError = error as Error;
+  //
+  //       if (
+  //         error instanceof MarklieError &&
+  //         error.statusCode >= 400 &&
+  //         error.statusCode < 500
+  //       ) {
+  //         throw error;
+  //       }
+  //
+  //       if (attempt === maxRetries) {
+  //         break;
+  //       }
+  //
+  //       const backoffDelay = delay * Math.pow(2, attempt - 1);
+  //       logger.warn(
+  //         `Facebook API retry ${attempt}/${maxRetries} after ${backoffDelay}ms`,
+  //         {
+  //           error: error instanceof Error ? error.message : "Unknown error",
+  //         },
+  //       );
+  //
+  //       await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+  //     }
+  //   }
+  //
+  //   throw lastError!;
+  // }
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        return await operation();
-      } catch (error) {
-        lastError = error as Error;
-
-        if (
-          error instanceof MarklieError &&
-          error.statusCode >= 400 &&
-          error.statusCode < 500
-        ) {
-          throw error;
-        }
-
-        if (attempt === maxRetries) {
-          break;
-        }
-
-        const backoffDelay = delay * Math.pow(2, attempt - 1);
-        logger.warn(
-          `Facebook API retry ${attempt}/${maxRetries} after ${backoffDelay}ms`,
-          {
-            error: error instanceof Error ? error.message : "Unknown error",
-          },
-        );
-
-        await new Promise((resolve) => setTimeout(resolve, backoffDelay));
-      }
+  private chunkArray<T>(array: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
     }
-
-    throw lastError!;
+    return chunks;
   }
 
   private async batchRequest(
@@ -163,7 +183,11 @@ export class FacebookApi {
             });
             return null;
           }
-          return JSON.parse(item.body);
+          try {
+            return JSON.parse(item.body);
+          } catch {
+            return item.body;
+          }
         });
       });
 
@@ -173,12 +197,41 @@ export class FacebookApi {
     return results.filter(Boolean);
   }
 
-  private chunkArray<T>(array: T[], size: number): T[][] {
-    const chunks: T[][] = [];
-    for (let i = 0; i < array.length; i += size) {
-      chunks.push(array.slice(i, i + size));
+  private async batchRequestWithToken(
+    batch: { method: string; relative_url: string }[],
+    token: string,
+  ): Promise<any[]> {
+    if (batch.length === 0) return [];
+
+    const batches = this.chunkArray(batch, FacebookApi.BATCH_SIZE);
+    const results: any[] = [];
+
+    for (const batchChunk of batches) {
+      const batchResult = await this.executeWithCircuitBreaker(async () => {
+        const res = await this.api.post("/", null, {
+          params: { batch: JSON.stringify(batchChunk), access_token: token },
+        });
+
+        return res.data.map((item: any) => {
+          if (item.code !== 200) {
+            logger.warn("Batch request item failed:", {
+              code: item.code,
+              body: item.body,
+            });
+            return null;
+          }
+          try {
+            return JSON.parse(item.body);
+          } catch {
+            return item.body;
+          }
+        });
+      });
+
+      results.push(...batchResult);
     }
-    return chunks;
+
+    return results.filter(Boolean);
   }
 
   private async paginateAll<T = any>(
@@ -222,12 +275,81 @@ export class FacebookApi {
     return results;
   }
 
+  private containsReachFields(fields: string[]): boolean {
+    const set = new Set(fields.map((f) => f.toLowerCase()));
+    return set.has("reach") || set.has("frequency") || set.has("cpp");
+  }
+
+  private static monthsBetween(startISO: string, endISO: string): number {
+    const s = new Date(startISO);
+    const e = new Date(endISO);
+    const months =
+      (e.getUTCFullYear() - s.getUTCFullYear()) * 12 +
+      (e.getUTCMonth() - s.getUTCMonth());
+    return months + (e.getUTCDate() >= s.getUTCDate() ? 0 : -1);
+  }
+
+  private adaptPollInterval(prev: number, utilPct?: number): number {
+    if (typeof utilPct === "number" && utilPct >= 80) {
+      return Math.min(prev * 1.5, 20000);
+    }
+    return Math.min(prev * 1.15, 15000);
+  }
+
+  public async getManagedPages(): Promise<
+    Array<{ id: string; name: string; access_token: string }>
+  > {
+    if (!this.managedPagesPromise) {
+      this.managedPagesPromise = (async () => {
+        const pages = await this.paginateAll<{
+          id: string;
+          name: string;
+          access_token: string;
+        }>("/me/accounts", { fields: "id,name,access_token", limit: 100 });
+        return pages
+          .filter((p) => p?.id && p?.name && p?.access_token)
+          .map((p) => ({
+            id: p.id,
+            name: p.name,
+            access_token: p.access_token,
+          }));
+      })();
+    }
+    return this.managedPagesPromise;
+  }
+
   public async getEntitiesBatch(entityIds: string[], fields: string[]) {
     const batch = entityIds.map((id) => ({
       method: "GET",
-      relative_url: `${id}?fields=${fields.join(",")}`,
+      relative_url: `${encodeURIComponent(id)}?fields=${encodeURIComponent(fields.join(","))}`,
     }));
     return await this.batchRequest(batch);
+  }
+
+  public async getEntitiesBatchWithToken(
+    token: string,
+    ids: string[],
+    fields: string[],
+  ): Promise<any[]> {
+    if (!ids?.length) return [];
+    const batch = ids.map((id) => ({
+      method: "GET",
+      relative_url: `${encodeURIComponent(id)}?fields=${encodeURIComponent(fields.join(","))}`,
+    }));
+    return this.batchRequestWithToken(batch, token);
+  }
+
+  public async getInstagramMediaBatchWithToken(
+    token: string,
+    mediaIds: string[],
+    fields: string[],
+  ): Promise<any[]> {
+    if (!mediaIds?.length) return [];
+    const batch = mediaIds.map((id) => ({
+      method: "GET",
+      relative_url: `${encodeURIComponent(id)}?fields=${encodeURIComponent(fields.join(","))}`,
+    }));
+    return this.batchRequestWithToken(batch, token);
   }
 
   public async getInsightsSmart(
@@ -257,12 +379,6 @@ export class FacebookApi {
       );
     }
 
-    const isLargeQuery =
-      customDateRange ||
-      breakdowns.length > 0 ||
-      actionBreakdowns.length > 0 ||
-      !["today", "yesterday", "last_7d"].includes(datePreset);
-
     const params: Record<string, any> = {
       fields: Array.from(new Set(fields)).join(","),
       level,
@@ -280,40 +396,77 @@ export class FacebookApi {
 
     const endpoint = `${this.accountId}/insights`;
 
+    let forceAsync = false;
+    if (
+      customDateRange &&
+      breakdowns.length > 0 &&
+      this.containsReachFields(fields) &&
+      FacebookApi.monthsBetween(customDateRange.since, customDateRange.until) >
+        13
+    ) {
+      forceAsync = true;
+    }
+
+    const isLargeQuery =
+      forceAsync ||
+      !!customDateRange ||
+      breakdowns.length > 0 ||
+      actionBreakdowns.length > 0 ||
+      !["today", "yesterday", "last_7d"].includes(datePreset);
+
     logger.info("Fetching Facebook insights", {
       endpoint,
       level,
       fields: fields.length,
-      isLargeQuery,
+      mode: isLargeQuery ? "async" : "sync",
       datePreset: customDateRange ? "custom" : datePreset,
+      breakdowns: breakdowns.join(",") || "none",
     });
 
     try {
       if (!isLargeQuery) {
-        return await this.executeWithCircuitBreaker(async () => {
-          const res = await this.api.get(endpoint, {
-            params: { ...params, limit: 100 },
-          });
-          return res.data.data || [];
+        const res = await this.executeWithCircuitBreaker(async () => {
+          return this.api.get(endpoint, { params: { ...params, limit: 100 } });
         });
+        return res.data.data || [];
       }
 
-      return await this.fetchAsyncInsights(endpoint, params);
+      return await this.fetchAsyncInsights(
+        endpoint,
+        params,
+        this.containsReachFields(fields),
+      );
     } catch (error: any) {
-      const fbMessage = error?.response?.data?.error?.message || "";
-      const fbCode = error?.response?.data?.error?.code;
+      const msg: string =
+        error?.data?.error?.message ||
+        error?.response?.data?.error?.message ||
+        "";
 
-      const isRetryable =
-        fbCode === 1 ||
-        fbCode === 17 ||
-        fbMessage.includes("reduce the amount of data");
+      const reachThrottle =
+        /Reach-related metric breakdowns are unavailable/i.test(msg) ||
+        /reach.*unavailable.*rate limit/i.test(msg);
 
-      if (isRetryable) {
-        logger.warn(
-          `Retrying with async mode due to large query or throttling`,
-          { fbCode, fbMessage },
+      if (reachThrottle) {
+        const cleaned = fields.filter(
+          (f) => !["reach", "frequency", "cpp"].includes(f.toLowerCase()),
         );
-        return await this.fetchAsyncInsights(endpoint, params);
+        if (!cleaned.length) return [];
+        logger.warn(
+          "Retrying insights without reach-related fields due to throttle",
+        );
+        return this.getInsightsSmart(level, cleaned, options);
+      }
+
+      // Data per call error → fallback to async if not already
+      const fbCode = error?.response?.data?.error?.code;
+      const fbSub = error?.response?.data?.error?.error_subcode;
+      if (fbCode === 100 && fbSub === 1487534) {
+        logger.warn("Data-per-call limit. Falling back to async job.");
+        return await this.fetchAsyncInsights(
+          endpoint,
+          params,
+          this.containsReachFields(fields),
+        );
       }
 
       throw error;
@@ -323,6 +476,7 @@ export class FacebookApi {
   private async fetchAsyncInsights(
     endpoint: string,
     params: Record<string, any>,
+    reachAware: boolean = false,
   ): Promise<any[]> {
     const jobRes = await this.executeWithCircuitBreaker(async () => {
       return this.api.post(endpoint, null, {
@@ -351,12 +505,24 @@ export class FacebookApi {
       const status = statusRes.data.async_status;
       const progress = statusRes.data.async_percent_completion || 0;
 
+      let appUtilPct: number | undefined = undefined;
+      const throttleHdr = (statusRes.headers?.["x-fb-ads-insights-throttle"] ||
+        statusRes.headers?.["X-FB-ADS-INSIGHTS-THROTTLE"]) as
+        | string
+        | undefined;
+      if (throttleHdr) {
+        try {
+          const parsed = JSON.parse(String(throttleHdr));
+          appUtilPct = Number(parsed?.app_id_util_pct);
+        } catch {}
+      }
+
       logger.debug(
         `Facebook insights job ${reportId} status: ${status} (${progress}%)`,
       );
 
       switch (status) {
-        case "Job Completed":
+        case "Job Completed": {
           const dataRes = await this.executeWithCircuitBreaker(async () => {
             return this.api.get(`/${reportId}/insights`);
           });
@@ -364,20 +530,36 @@ export class FacebookApi {
             `Facebook insights job ${reportId} completed successfully`,
           );
           return dataRes.data.data || [];
-
-        case "Job Failed":
+        }
+        case "Job Failed": {
+          if (reachAware) {
+            logger.warn(
+              "Async job failed. Retrying without reach-related fields.",
+            );
+            const filtered = { ...params };
+            const list = String(filtered.fields)
+              .split(",")
+              .filter(
+                (f) => !["reach", "frequency", "cpp"].includes(f.toLowerCase()),
+              );
+            if (!list.length)
+              throw MarklieError.externalApi(
+                "Facebook Insights async job failed",
+              );
+            filtered.fields = list.join(",");
+            return await this.fetchAsyncInsights(endpoint, filtered, false);
+          }
           logger.error(`Facebook insights job ${reportId} failed`);
           throw MarklieError.externalApi("Facebook Insights async job failed");
-
+        }
         case "Job Running":
-        case "Job Started":
-          if (attempt > 10) {
-            pollInterval = Math.min(pollInterval * 1.2, 15000);
-          }
+        case "Job Started": {
+          pollInterval = this.adaptPollInterval(pollInterval, appUtilPct);
           break;
-
+        }
         default:
           logger.warn(`Unknown Facebook insights job status: ${status}`);
+          pollInterval = this.adaptPollInterval(pollInterval, appUtilPct);
       }
     }
 
@@ -396,10 +578,7 @@ export class FacebookApi {
       actionBreakdowns: ["action_type"],
     });
 
-    if (insights.length === 0) {
-      logger.info("No ad insights data returned");
-      return [];
-    }
+    if (insights.length === 0) return [];
 
     return await this.enrichInsightsWithCreativeData(insights);
   }
@@ -414,22 +593,17 @@ export class FacebookApi {
     if (adIds.length === 0) return insights;
 
     try {
-      const adFields = ["id", "creative{id}"];
+      const adFields = [
+        "id",
+        "name",
+        "creative{id,thumbnail_url,instagram_permalink_url,effective_instagram_media_id,effective_object_story_id}",
+      ];
 
       const ads = await this.getEntitiesBatch(adIds, adFields);
 
-      const creativeIds = ads
-        .map((ad) => ad.creative?.id)
-        .filter((id): id is string => !!id);
-
-      const creatives =
-        creativeIds.length > 0
-          ? await this.getEntitiesBatch(creativeIds, ["id", "thumbnail_url"])
-          : [];
-
       return insights.map((insight) => {
         const ad = ads.find((a) => a.id === insight.ad_id);
-        const creative = creatives.find((c) => c.id === ad?.creative?.id);
+        const cr = ad?.creative || {};
 
         const getActionValue = (type: string) =>
           insight.actions?.find((a: any) => a.action_type === type)?.value ?? 0;
@@ -441,8 +615,12 @@ export class FacebookApi {
           roas: insight.purchase_roas?.[0]?.value ?? 0,
           ad_name: insight?.ad_name ?? null,
           creative: {
-            id: creative?.id ?? null,
-            thumbnail_url: creative?.thumbnail_url ?? null,
+            id: cr?.id ?? null,
+            thumbnail_url: cr?.thumbnail_url ?? null,
+            instagram_permalink_url: cr?.instagram_permalink_url ?? null,
+            effective_instagram_media_id:
+              cr?.effective_instagram_media_id ?? null,
+            effective_object_story_id: cr?.effective_object_story_id ?? null,
           },
         };
       });
@@ -451,212 +629,73 @@ export class FacebookApi {
       return insights;
     }
   }
+  public async listCustomConversions(
+    adAccountId: string,
+    opts: { includeArchived?: boolean; pageLimit?: number } = {},
+  ): Promise<
+    Array<{
+      id: string;
+      name: string;
+      custom_event_type?: string;
+      rule?: any;
+      is_archived?: boolean;
+    }>
+  > {
+    const params = {
+      fields: "id,name,custom_event_type,rule,is_archived",
+      include_archived: !!opts.includeArchived,
+      limit: opts.pageLimit ?? 200,
+    };
 
-  public async getAdCreatives(
-    fields: string[] = [
-      "id",
-      "name",
-      "object_story_id",
-      "thumbnail_url",
-      "effective_object_story_id",
-    ],
-  ): Promise<any[]> {
-    return await this.retryOperation(() =>
-      this.paginateAll(`${this.accountId}/adcreatives`, {
-        fields: fields.join(","),
-        limit: 100,
-      }),
-    );
+    return await this.paginateAll<{
+      id: string;
+      name: string;
+      custom_event_type?: string;
+      rule?: any;
+      is_archived?: boolean;
+    }>(`${adAccountId}/customconversions`, params);
   }
 
-  public async getCreativeAssetsBatch(creativeIds: string[]): Promise<any[]> {
-    return await this.getEntitiesBatch(creativeIds, [
-      "id",
-      "effective_instagram_media_id",
-      "effective_object_story_id",
-      "thumbnail_url",
-      "instagram_permalink_url",
-    ]);
-  }
-
-  public async getInstagramMediaBatch(mediaIds: string[]): Promise<any[]> {
-    return await this.getEntitiesBatch(mediaIds, [
-      "media_url",
-      "permalink",
-      "thumbnail_url",
-      "media_type",
-    ]);
-  }
-
-  public async getCreativeAsset(
-    creativeId: string,
-    fields: string[] = [
-      "id",
-      "image_url",
-      "thumbnail_url",
-      "instagram_permalink_url",
-      "effective_object_story_id",
-    ],
-  ): Promise<any> {
-    return await this.executeWithCircuitBreaker(async () => {
-      const res = await this.api.get(`${creativeId}`, {
-        params: { fields: fields.join(",") },
-      });
-      return res.data;
-    });
-  }
-
-  public async getInstagramMedia(
-    mediaId: string,
-    fields: string[] = [
-      "media_url",
-      "permalink",
-      "thumbnail_url",
-      "media_type",
-    ],
-  ): Promise<any> {
-    return await this.executeWithCircuitBreaker(async () => {
-      const res = await this.api.get(`${mediaId}`, {
-        params: { fields: fields.join(",") },
-      });
-      return res.data;
-    });
-  }
-
-  public async getProfile() {
-    const res = await this.api.get(`/me`, {
-      params: { fields: "id,name,email,picture" },
-    });
-    return res.data;
-  }
-
-  public async getBusinesses(): Promise<any> {
-    return await this.executeWithCircuitBreaker(async () => {
-      const res = await this.api.get(`/me/businesses`, {
-        params: { fields: "id,name,owned_ad_accounts{id,name}", limit: 1000 },
-      });
-      return res.data;
-    });
-  }
-
-  public async getInstagramCarouselChildren(mediaId: string): Promise<any> {
-    const res = await this.api.get(`/${mediaId}/children`, {
-      params: {
-        fields: [
-          "id",
-          "media_type",
-          "media_url",
-          "thumbnail_url",
-          "permalink",
-        ].join(","),
-      },
-    });
-    return res.data;
-  }
-
-  public async getUserAdAccounts(): Promise<any> {
-    return await this.executeWithCircuitBreaker(async () => {
-      const res = await this.api.get(`/me/adaccounts`, {
-        params: { fields: "id,name" },
-      });
-      return res.data;
-    });
-  }
-
-  public async getFilteredAdAccounts() {
-    const businesses = await this.getBusinesses();
-    const allAdAccounts = await this.getUserAdAccounts();
-    const businessAccountIds = new Set<string>();
-    for (const business of businesses.data) {
-      const accounts = business.owned_ad_accounts?.data || [];
-      accounts.forEach((acc: { id: string }) => businessAccountIds.add(acc.id));
-    }
-    return allAdAccounts.data.filter(
-      (acc: any) => !businessAccountIds.has(acc.id),
-    );
-  }
-
-  public async getRecommendations() {
-    const res = await this.api.get(`${this.accountId}/recommendations`);
-    return res.data;
-  }
-
-  public async getTargetingDemographics() {
-    const res = await this.api.get(`${this.accountId}/reachestimate`, {
-      params: {
-        targeting_spec: JSON.stringify({
-          geo_locations: { countries: ["US"] },
-          age_min: 18,
-          age_max: 65,
-        }),
-      },
-    });
-    return res.data;
-  }
-
-  public async getPost(postId: string): Promise<any> {
-    return await this.executeWithCircuitBreaker(async () => {
-      const res = await this.api.get(`${this.accountId}`, {
-        params: {
-          fields:
-            "id,name,adcreatives.limit(1){effective_object_story_id,name,thumbnail_url,authorization_category,instagram_permalink_url}",
-          search: postId,
-          limit: 1,
-          thumbnail_height: 1080,
-          thumbnail_width: 1080,
-        },
-      });
-      return res.data;
-    });
-  }
-
-  public async getCustomMetricsForAdAccounts(
+  public async getCustomConversionsForAdAccounts(
     adAccountIds: string[],
-  ): Promise<Record<string, { id: string; name: string }[]>> {
-    const result: Record<string, { id: string; name: string }[]> = {};
+    opts: { includeArchived?: boolean; pageLimit?: number } = {},
+  ): Promise<
+    Record<
+      string,
+      Array<{
+        id: string;
+        name: string;
+        custom_event_type?: string;
+        rule?: any;
+        is_archived?: boolean;
+      }>
+    >
+  > {
+    const out: Record<
+      string,
+      Array<{
+        id: string;
+        name: string;
+        custom_event_type?: string;
+        rule?: any;
+        is_archived?: boolean;
+      }>
+    > = {};
 
     await Promise.all(
-      adAccountIds.map(async (adAccountId) => {
+      adAccountIds.map(async (actId) => {
         try {
-          const conversionsRes = await this.api.get(
-            `${adAccountId}/customconversions`,
-          );
-          const conversions = conversionsRes.data.data ?? [];
-
-          if (conversions.length === 0) return;
-
-          const details: { id: string; name: string }[] = [];
-
-          await Promise.allSettled(
-            conversions.map((cc: any) =>
-              this.api
-                .get(`${cc.id}`, {
-                  params: {
-                    fields: "name,custom_event_type,description,rule",
-                  },
-                })
-                .then((res) => {
-                  const data = res?.data;
-                  if (data?.id && data?.name) {
-                    details.push({ id: data.id, name: data.name });
-                  }
-                }),
-            ),
-          );
-
-          if (details.length > 0) {
-            result[adAccountId] = details;
-          }
+          const rows = await this.listCustomConversions(actId, opts);
+          if (rows.length) out[actId] = rows;
         } catch (err) {
-          throw MarklieError.externalApi(
-            "FacebookApi",
-            err as Error,
-            `Error fetching custom metrics for ${adAccountId}`,
-          );
+          logger.warn("Failed to list custom conversions for ad account", {
+            actId,
+            err: (err as Error).message,
+          });
         }
       }),
     );
 
-    return result;
+    return out;
   }
 }
