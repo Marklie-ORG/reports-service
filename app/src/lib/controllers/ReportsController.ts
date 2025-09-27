@@ -7,6 +7,7 @@ import {
   type UpdateReportMetadataRequest
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import type { ScheduledProviderConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
+import { ReportsUtil } from "lib/utils/ReportsUtil.js";
 
 export class ReportsController extends Router {
   private readonly reportsService: ReportsService;
@@ -24,6 +25,7 @@ export class ReportsController extends Router {
     this.post("/send-after-review", this.sendAfterReview.bind(this));
     this.put("/report-data/:uuid", this.updateReportData.bind(this));
     this.put("/report-metadata/:uuid", this.updateReportMetadata.bind(this));
+    this.get("/:uuid/pdf", this.downloadReportPdf.bind(this));
   }
 
   private async getReport(ctx: Context) {
@@ -119,6 +121,29 @@ export class ReportsController extends Router {
     ctx.body = {
       message: "Report metrics selections updated successfully",
     };
+    ctx.status = 200;
+  }
+
+  private async downloadReportPdf(ctx: Context) {
+    const uuid = ctx.params.uuid as string;
+
+    const pdfBuffer = await ReportsUtil.generateReportPdf(uuid);
+    const report = await this.reportsService.getReport(uuid);
+
+    if (!report) {
+      throw MarklieError.notFound("Report", uuid, "reports-service");
+    }
+
+    const baseName = (report.messaging?.pdfFilename || report.customization?.title || "report").trim();
+    const safeBaseName = baseName.replace(/[^\w.\- ()]/g, "_");
+    const filename = safeBaseName.toLowerCase().endsWith(".pdf")
+      ? safeBaseName
+      : `${safeBaseName}.pdf`;
+
+    ctx.set("Content-Type", "application/pdf");
+    ctx.set("Content-Disposition", `attachment; filename="${filename}"`);
+    ctx.set("Content-Length", String(pdfBuffer.length));
+    ctx.body = pdfBuffer;
     ctx.status = 200;
   }
 
