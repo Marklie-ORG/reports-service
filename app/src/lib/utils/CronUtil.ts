@@ -25,24 +25,24 @@ export class CronUtil {
   }
 
   public static getNextRunDateFromCron(schedule: SchedulingOption): Date {
-    if (!schedule.cronExpression) {
+    if (!schedule.schedule.cronExpression) {
       throw new Error("cronExpression is required");
     }
 
     const opts = {
       currentDate: new Date(),
-      tz: schedule.timezone || "UTC",
+      tz: schedule.schedule.timezone || "UTC",
     };
 
     try {
       const interval = CronExpressionParser.parse(
-        schedule.cronExpression,
+        schedule.schedule.cronExpression,
         opts,
       );
       return interval.next().toDate();
     } catch (err) {
       throw new Error(
-        `Invalid cronExpression "${schedule.cronExpression}": ${(err as Error).message}`,
+        `Invalid cronExpression "${schedule.schedule.cronExpression}": ${(err as Error).message}`,
       );
     }
   }

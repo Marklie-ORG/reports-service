@@ -5,7 +5,6 @@ import {
   Log,
   MarklieError,
   OrganizationClient,
-  ScheduledJob,
   SchedulingOption,
 } from "marklie-ts-core";
 import { ReportQueueService } from "./ReportsQueueService.js";
@@ -16,14 +15,16 @@ import type {
 import { Temporal } from "@js-temporal/polyfill";
 import { CronUtil } from "../utils/CronUtil.js";
 import { FacebookApi } from "../apis/FacebookApi.js";
+import type {
+  ISchedulingOption,
+  SchedulingOptionWithExtras,
+} from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js"; // <- new DTOs you added
 import {
   AVAILABLE_ADS_METRICS,
   AVAILABLE_CAMPAIGN_METRICS,
   AVAILABLE_GRAPH_METRICS,
   AVAILABLE_KPI_METRICS,
   type ReportScheduleRequest,
-  type SchedulingOptionWithExtras,
-  type SchedulingOptionWithImages,
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 const database = await Database.getInstance();
@@ -37,7 +38,6 @@ export class SchedulesService {
       const client = await database.em.findOne(OrganizationClient, {
         uuid: scheduleOption.clientUuid,
       });
-
       if (!client) {
         throw MarklieError.notFound(
           "Client",
@@ -49,39 +49,30 @@ export class SchedulesService {
       const schedule = new SchedulingOption();
       this.assignScheduleFields(schedule, scheduleOption, client);
 
+      const cronExpression = schedule.schedule.cronExpression;
       const jobPayload = this.buildJobPayload(
         scheduleOption,
         client,
         schedule.uuid,
       );
 
-      const cronExpression =
-        CronUtil.convertScheduleRequestToCron(scheduleOption);
-
       const job = await ReportQueueService.getInstance().scheduleReport(
         jobPayload,
         cronExpression,
-        schedule.uuid,
-        schedule.timezone,
+        schedule.uuid, // deterministic job id
+        schedule.schedule.timezone,
       );
-
       if (!job) {
         throw MarklieError.notFound("Job", schedule.uuid, "Job was not found");
       }
 
-      const scheduledJob = new ScheduledJob();
-      scheduledJob.bullJobId = `sched:generate-report:${schedule.uuid}:${jobPayload.timeZone ?? ""}`;
-      scheduledJob.schedulingOption = schedule;
-
-      database.em.persist([schedule, scheduledJob]);
+      schedule.schedule.jobId = String(job.id);
+      database.em.persist(schedule);
       await database.em.flush();
 
       return schedule.uuid;
     } catch (error) {
-      if (error instanceof MarklieError) {
-        throw error;
-      }
-
+      if (error instanceof MarklieError) throw error;
       throw MarklieError.internal(
         "Failed to schedule report",
         {
@@ -101,21 +92,12 @@ export class SchedulesService {
       const schedule = await em.findOne(
         SchedulingOption,
         { uuid },
-        {
-          populate: ["scheduledJob", "client", "client.organization"],
-          refresh: true,
-        },
+        { populate: ["client", "client.organization"], refresh: true },
       );
-
-      if (!schedule) {
-        throw MarklieError.notFound("Schedule was not found");
-      }
+      if (!schedule) throw MarklieError.notFound("Schedule was not found");
 
       const queue = ReportQueueService.getInstance();
-      const cronExpression =
-        CronUtil.convertScheduleRequestToCron(scheduleOption);
-
-      const oldJobId = schedule.scheduledJob?.bullJobId;
+      const oldJobId = schedule.schedule.jobId ?? undefined;
 
       this.assignScheduleFields(schedule, scheduleOption, schedule.client);
 
@@ -124,139 +106,114 @@ export class SchedulesService {
         schedule.client,
         schedule.uuid,
       );
-
       const job = await queue.scheduleReport(
         jobPayload,
-        cronExpression,
+        schedule.schedule.cronExpression,
         schedule.uuid,
-        schedule.timezone,
+        schedule.schedule.timezone,
       );
-
-      if (!job || !job.id || typeof job.id !== "string") {
+      if (!job || !job.id)
         throw MarklieError.internal("Job was not created or has invalid ID");
-      }
 
-      let scheduledJob = schedule.scheduledJob;
-      if (!scheduledJob) {
-        scheduledJob = new ScheduledJob();
-        scheduledJob.schedulingOption = schedule;
-        schedule.scheduledJob = scheduledJob;
-      }
+      schedule.schedule.jobId = String(job.id);
+      schedule.schedule.nextRun = CronUtil.getNextRunDateFromCron(schedule);
+      await em.persistAndFlush(schedule);
 
-      scheduledJob.bullJobId = job.id;
-      scheduledJob.lastRunAt = null;
-      schedule.nextRun = CronUtil.getNextRunDateFromCron(schedule);
-
-      await em.persistAndFlush([schedule, scheduledJob]);
-
-      if (oldJobId) {
+      if (oldJobId && oldJobId !== schedule.schedule.jobId) {
         try {
           await queue.removeScheduledJob(oldJobId);
-        } catch (error) {
-          logger.warn(`Failed to remove old job ${oldJobId}:`, error);
+        } catch (err) {
+          logger.warn(`Failed to remove old job ${oldJobId}:`, err);
         }
       }
 
-      return cronExpression;
+      return schedule.schedule.cronExpression;
     });
   }
 
-  async getSchedulingOption(uuid: string): Promise<SchedulingOptionWithImages> {
-    const gcs = GCSWrapper.getInstance("marklie-client-reports");
-    const schedulingOption = await database.em.findOne(SchedulingOption, {
-      uuid: uuid,
-    });
-
-    if (!schedulingOption || !schedulingOption.jobData?.images) {
-      return {
-        ...schedulingOption,
-        images: {
-          clientLogo: "",
-          organizationLogo: "",
-        },
-        //todo: remove unknown
-      } as unknown as SchedulingOptionWithImages;
+  async getSchedulingOption(uuid: string): Promise<
+    ISchedulingOption & {
+      images?: { clientLogo?: string; organizationLogo?: string };
     }
+  > {
+    const gcs = GCSWrapper.getInstance("marklie-client-reports");
+    const opt = await database.em.findOne(SchedulingOption, { uuid });
+    if (!opt) throw MarklieError.notFound("SchedulingOption", uuid);
 
-    const clientLogo = schedulingOption.jobData.images.clientLogo
-      ? await gcs.getSignedUrl(schedulingOption.jobData.images.clientLogo)
-      : "";
-    const organizationLogo = schedulingOption.jobData.images.organizationLogo
-      ? await gcs.getSignedUrl(schedulingOption.jobData.images.organizationLogo)
-      : "";
+    console.log(opt);
+    const clientLogo = opt.customization?.logos?.client?.gcsUri
+      ? await gcs.getSignedUrl(opt.customization.logos.client.gcsUri)
+      : undefined;
+    const organizationLogo = opt.customization?.logos?.org?.gcsUri
+      ? await gcs.getSignedUrl(opt.customization.logos.org.gcsUri)
+      : undefined;
 
-    return {
-      ...schedulingOption,
-      images: {
-        clientLogo,
-        organizationLogo,
-      },
-      //todo: remove unknown
-    } as unknown as SchedulingOptionWithImages;
+    const base: ISchedulingOption = opt as unknown as ISchedulingOption;
+
+    const images =
+      clientLogo || organizationLogo
+        ? {
+            ...(clientLogo ? ({ clientLogo } as const) : {}),
+            ...(organizationLogo ? ({ organizationLogo } as const) : {}),
+          }
+        : undefined;
+
+    return images ? { ...base, images } : base;
   }
 
   async getSchedulingOptions(
     clientUuid: string,
   ): Promise<SchedulingOptionWithExtras[]> {
     const gcs = GCSWrapper.getInstance("marklie-client-reports");
-
-    const schedulingOptions = await database.em.find(SchedulingOption, {
+    const options = await database.em.find(SchedulingOption, {
       client: clientUuid,
     });
 
-    const sortedOptions = schedulingOptions.sort(
+    const sorted = options.sort(
       (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
     );
 
     return Promise.all(
-      sortedOptions.map(async (opt) => {
-        const { images: imageData, time } = opt.jobData || {};
-        const [hour, minute] = time?.split(":").map(Number) || [0, 0];
-
-        const plainDate = ReportsUtil.getNextRunDate(
-          opt.jobData as ReportScheduleRequest,
-        ).toPlainDate();
+      sorted.map(async (opt) => {
+        const tz = opt.schedule.timezone || "UTC";
 
         let formattedNextRun = "";
-        let formattedLastRun = "";
-
-        if (opt.timezone) {
-          const zonedNext = plainDate.toZonedDateTime({
-            timeZone: opt.timezone,
-            plainTime: new Temporal.PlainTime(hour, minute),
-          });
-
-          formattedNextRun = zonedNext.toLocaleString("en-US", {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            hourCycle: "h23",
-          });
-
-          if (opt.lastRun) {
-            const lastRunInstant = Temporal.Instant.from(
-              opt.lastRun.toISOString(),
-            );
-            const zonedLastRun = lastRunInstant.toZonedDateTimeISO(
-              opt.timezone,
-            );
-
-            formattedLastRun = zonedLastRun.toLocaleString("en-US", {
+        if (opt.schedule.nextRun) {
+          const nextInst = Temporal.Instant.from(
+            opt.schedule.nextRun.toISOString(),
+          );
+          formattedNextRun = nextInst
+            .toZonedDateTimeISO(tz)
+            .toLocaleString("en-US", {
               month: "short",
               day: "numeric",
               hour: "2-digit",
               minute: "2-digit",
               hourCycle: "h23",
             });
-          }
         }
 
-        const clientLogo = imageData?.clientLogo
-          ? await gcs.getSignedUrl(imageData.clientLogo)
+        let formattedLastRun = "";
+        if (opt.schedule.lastRun) {
+          const lastInst = Temporal.Instant.from(
+            opt.schedule.lastRun.toISOString(),
+          );
+          formattedLastRun = lastInst
+            .toZonedDateTimeISO(tz)
+            .toLocaleString("en-US", {
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              hourCycle: "h23",
+            });
+        }
+
+        const clientLogo = opt.customization?.logos?.client?.gcsUri
+          ? await gcs.getSignedUrl(opt.customization.logos.client.gcsUri)
           : "";
-        const organizationLogo = imageData?.organizationLogo
-          ? await gcs.getSignedUrl(imageData.organizationLogo)
+        const organizationLogo = opt.customization?.logos?.org?.gcsUri
+          ? await gcs.getSignedUrl(opt.customization.logos.org.gcsUri)
           : "";
 
         const images =
@@ -265,16 +222,83 @@ export class SchedulesService {
             : undefined;
 
         return {
-          ...opt,
-          nextRun: formattedNextRun,
-          lastRun: formattedLastRun,
-          frequency:
-            opt.jobData!.frequency.charAt(0).toUpperCase() +
-            opt.jobData!.frequency.slice(1),
+          ...(opt as unknown as ISchedulingOption),
+          schedule: {
+            ...opt.schedule,
+            nextRun: formattedNextRun,
+            lastRun: formattedLastRun,
+          },
+          frequency: this.prettyFrequency(opt),
           ...(images && { images }),
-        };
+        } as SchedulingOptionWithExtras;
       }),
     );
+  }
+
+  public async deleteSchedulingOptions(uuids: string[]): Promise<void> {
+    const options = await database.em.find(SchedulingOption, {
+      uuid: { $in: uuids },
+    });
+
+    const reportQueue = ReportQueueService.getInstance();
+    for (const opt of options) {
+      if (opt.schedule.jobId) {
+        await reportQueue.removeScheduledJob(opt.schedule.jobId);
+      }
+      database.em.remove(opt);
+    }
+    await database.em.flush();
+  }
+
+  public async stopSchedulingOptions(uuids: string[]): Promise<void> {
+    const options = await database.em.find(SchedulingOption, {
+      uuid: { $in: uuids },
+    });
+    const reportQueue = ReportQueueService.getInstance();
+
+    for (const opt of options) {
+      opt.isActive = false;
+      if (opt.schedule.jobId) {
+        await reportQueue.removeScheduledJob(opt.schedule.jobId);
+        opt.schedule.jobId = "";
+      }
+    }
+    await database.em.persistAndFlush(options);
+  }
+
+  public async activateSchedulingOptions(uuids: string[]): Promise<void> {
+    const options = await database.em.find(
+      SchedulingOption,
+      { uuid: { $in: uuids } },
+      { populate: ["client"] },
+    );
+    const reportQueue = ReportQueueService.getInstance();
+
+    for (const opt of options) {
+      if (opt.isActive && opt.schedule.jobId) continue;
+
+      opt.isActive = true;
+
+      const jobPayload = this.buildJobPayload(
+        this.requestFromOption(opt),
+        opt.client,
+        opt.uuid,
+      );
+
+      const newJob = await reportQueue.scheduleReport(
+        jobPayload,
+        opt.schedule.cronExpression,
+        opt.uuid,
+        opt.schedule.timezone,
+      );
+      if (!newJob)
+        throw new Error(`Job not created for scheduling option ${opt.uuid}`);
+
+      opt.schedule.jobId = String(newJob.id);
+      opt.schedule.nextRun = CronUtil.getNextRunDateFromCron(opt);
+    }
+
+    await database.em.flush();
   }
 
   private assignScheduleFields(
@@ -282,23 +306,66 @@ export class SchedulesService {
     option: ReportScheduleRequest,
     client: OrganizationClient,
   ) {
-    schedule.cronExpression = CronUtil.convertScheduleRequestToCron(option);
+    const newSchedule: typeof schedule.schedule = {
+      timezone: option.timeZone,
+      datePreset: option.datePreset,
+      cronExpression: CronUtil.convertScheduleRequestToCron(option),
+    };
+
+    if (schedule.schedule?.jobId) {
+      newSchedule.jobId = schedule.schedule.jobId;
+    }
+    schedule.schedule = newSchedule;
+
+    schedule.review = { required: !!option.reviewRequired };
+
+    const logos: NonNullable<typeof schedule.customization>["logos"] = {};
+    if (option.images?.clientLogo) {
+      logos.client = { gcsUri: option.images.clientLogo };
+    }
+    if (option.images?.organizationLogo) {
+      logos.org = { gcsUri: option.images.organizationLogo };
+    }
+
+    schedule.customization = {
+      title: option.reportName || "",
+      colors: {
+        headerBg: option.colors?.headerBackgroundColor ?? "",
+        reportBg: option.colors?.reportBackgroundColor ?? "",
+      },
+      ...(Object.keys(logos).length ? { logos } : {}),
+    };
+
+    const messaging: NonNullable<typeof schedule.messaging> = {};
+    if (option.messages?.email) {
+      messaging.email = {
+        ...(option.messages.email.title
+          ? { title: option.messages.email.title }
+          : {}),
+        ...(option.messages.email.body
+          ? { body: option.messages.email.body }
+          : {}),
+      };
+    }
+    if (option.messages?.slack) messaging.slack = option.messages.slack;
+    if (option.messages?.whatsapp)
+      messaging.whatsapp = option.messages.whatsapp;
+    if (Object.keys(messaging).length) {
+      schedule.messaging = messaging;
+    } else {
+      delete (schedule as any).messaging;
+    }
+
+    schedule.providers = option.providers ?? [];
     schedule.client = database.em.getReference(OrganizationClient, client.uuid);
-    schedule.jobData = option as any;
-    schedule.timezone = option.timeZone;
-    schedule.datePreset = option.datePreset;
-    schedule.reportName = option.reportName || "";
-    schedule.reviewRequired = option.reviewRequired || false;
 
     const [hour, minute] = option.time.split(":").map(Number);
     const plainDate = ReportsUtil.getNextRunDate(option).toPlainDate();
-
-    const zonedDateTime = plainDate.toZonedDateTime({
+    const zoned = plainDate.toZonedDateTime({
       timeZone: option.timeZone,
       plainTime: new Temporal.PlainTime(hour, minute),
     });
-
-    schedule.nextRun = new Date(zonedDateTime.epochMilliseconds);
+    schedule.schedule.nextRun = new Date(zoned.epochMilliseconds);
   }
 
   private buildJobPayload(
@@ -307,7 +374,6 @@ export class SchedulesService {
     scheduleUuid: string,
   ): ReportJobData {
     const { providers, ...rest } = option;
-
     return {
       ...rest,
       data: (providers as unknown as ReportData[]) ?? [],
@@ -316,121 +382,64 @@ export class SchedulesService {
     };
   }
 
-  public async deleteSchedulingOptions(uuids: string[]): Promise<void> {
-    const schedulingOptions = await database.em.find(
-      SchedulingOption,
-      { uuid: { $in: uuids } },
-      { populate: ["scheduledJob"] },
-    );
-
-    const reportQueue = ReportQueueService.getInstance();
-
-    for (const option of schedulingOptions) {
-      if (option.scheduledJob) {
-        const jobId = this.parseBullJobId(option.scheduledJob.bullJobId);
-
-        await reportQueue.removeScheduledJob(jobId);
-        database.em.remove(option.scheduledJob);
-      }
-      database.em.remove(option);
-    }
-
-    await database.em.flush();
+  private requestFromOption(opt: SchedulingOption): ReportScheduleRequest {
+    return {
+      clientUuid: opt.client.uuid,
+      frequency: "cron",
+      cronExpression: opt.schedule.cronExpression,
+      timeZone: opt.schedule.timezone,
+      time: "00:00", // not stored on opt; irrelevant for cron schedules
+      datePreset: opt.schedule.datePreset,
+      reportName: opt.customization?.title ?? "",
+      reviewRequired: !!opt.review?.required,
+      providers: opt.providers ?? [],
+      colors: {
+        headerBackgroundColor: opt.customization?.colors?.headerBg ?? "",
+        reportBackgroundColor: opt.customization?.colors?.reportBg ?? "",
+      },
+      images: {
+        clientLogo: opt.customization?.logos?.client?.gcsUri ?? "",
+        organizationLogo: opt.customization?.logos?.org?.gcsUri ?? "",
+      },
+      messages: {
+        slack: opt.messaging?.slack ?? "",
+        whatsapp: opt.messaging?.whatsapp ?? "",
+        email: opt.messaging?.email
+          ? {
+              title: opt.messaging.email.title ?? "",
+              body: opt.messaging.email.body ?? "",
+            }
+          : { title: "", body: "" },
+      },
+    } as ReportScheduleRequest;
   }
 
-  public async stopSchedulingOptions(uuids: string[]): Promise<void> {
-    const schedulingOptions = await database.em.find(
-      SchedulingOption,
-      { uuid: { $in: uuids } },
-      { populate: ["scheduledJob"] },
-    );
-
-    const reportQueue = ReportQueueService.getInstance();
-
-    for (const option of schedulingOptions) {
-      option.isActive = false;
-
-      if (option.scheduledJob) {
-        const jobId = this.parseBullJobId(option.scheduledJob.bullJobId);
-        await reportQueue.removeScheduledJob(jobId);
-      }
+  private prettyFrequency(opt: SchedulingOption): string {
+    const cron = opt.schedule.cronExpression.trim().toUpperCase();
+    if (
+      /^\d{1,2}\s+\d{1,2}\s+\*\s+\*\s+(MON|TUE|WED|THU|FRI|SAT|SUN)$/.test(cron)
+    ) {
+      return "Weekly";
     }
-
-    await database.em.persistAndFlush(schedulingOptions);
-  }
-
-  private parseBullJobId(bullJobId: string): string {
-    return bullJobId
-      .substring(0, bullJobId.lastIndexOf(":"))
-      .replace(/^repeat:/, "");
-  }
-
-  public async activateSchedulingOptions(uuids: string[]): Promise<void> {
-    const schedulingOptions = await database.em.find(
-      SchedulingOption,
-      { uuid: { $in: uuids } },
-      { populate: ["scheduledJob", "client"] },
-    );
-
-    const reportQueue = ReportQueueService.getInstance();
-
-    for (const option of schedulingOptions) {
-      if (!option.isActive) {
-        option.isActive = true;
-
-        const cronExpression = CronUtil.convertScheduleRequestToCron(
-          option.jobData as ReportScheduleRequest,
-        );
-
-        const jobPayload = this.buildJobPayload(
-          option.jobData as ReportScheduleRequest,
-          option.client,
-          option.uuid,
-        );
-
-        const newJob = await reportQueue.scheduleReport(
-          jobPayload,
-          cronExpression,
-          option.uuid,
-          option.timezone,
-        );
-        if (!newJob) {
-          throw new Error(
-            `Job not created for scheduling option ${option.uuid}`,
-          );
-        }
-
-        const scheduledJob = new ScheduledJob();
-        scheduledJob.bullJobId = newJob.id as string;
-        scheduledJob.schedulingOption = option;
-
-        database.em.persist(scheduledJob);
-        option.scheduledJob = scheduledJob;
-      }
+    if (/^\d{1,2}\s+\d{1,2}\s+\d{1,2}\s+\*\s+\*$/.test(cron)) {
+      return "Monthly";
     }
-
-    await database.em.flush();
+    return "Cron";
   }
 
   public async getAvailableMetricsForAdAccounts(clientUuid: string) {
     const client = await database.em.findOne(
       OrganizationClient,
-      {
-        uuid: clientUuid,
-      },
+      { uuid: clientUuid },
       { populate: ["organization", "adAccounts"], refresh: true },
     );
-
-    if (!client) {
-      throw MarklieError.notFound("Client", clientUuid);
-    }
+    if (!client) throw MarklieError.notFound("Client", clientUuid);
 
     const api = await FacebookApi.create(client.organization.uuid);
 
     const adAccountIds = client
       .adAccounts!.getItems()
       .map((acc) => acc.adAccountId);
-
     const customMetricsByAdAccount =
       await api.getCustomConversionsForAdAccounts(adAccountIds);
 

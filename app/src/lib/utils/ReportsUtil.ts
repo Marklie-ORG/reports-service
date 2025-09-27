@@ -56,7 +56,7 @@ export class ReportsUtil {
       const report = await this.saveReportEntity(data, client, providersData);
 
       await this.updateLastRun(data.scheduleUuid);
-      schedulingOption.nextRun =
+      schedulingOption.schedule.nextRun =
         CronUtil.getNextRunDateFromCron(schedulingOption);
 
       if (!data.reviewRequired) {
@@ -181,20 +181,18 @@ export class ReportsUtil {
   private static generatePdfFilename(
     schedulingOption: SchedulingOption,
   ): string {
-    if (!schedulingOption?.nextRun) {
+    if (!schedulingOption?.schedule.nextRun) {
       return "Report";
     }
-    const date = new Date(schedulingOption.nextRun);
+    const date = new Date(schedulingOption.schedule.nextRun);
     const day = String(date.getUTCDate()).padStart(2, "0");
     const month = String(date.getUTCMonth() + 1).padStart(2, "0");
     const year = String(date.getUTCFullYear()).slice(-2);
     const formatted = `${day}.${month}.${year}`;
 
-    console.log(schedulingOption);
-
     const dateRangeText = this.getDateRangeTextForPreset(
-      schedulingOption.datePreset,
-      schedulingOption.nextRun,
+      schedulingOption.schedule.datePreset,
+      schedulingOption.schedule.nextRun,
     );
 
     return (
@@ -432,7 +430,7 @@ export class ReportsUtil {
     });
 
     if (option) {
-      option.lastRun = new Date();
+      option.schedule.lastRun = new Date();
       await database.em.flush();
     }
   }
