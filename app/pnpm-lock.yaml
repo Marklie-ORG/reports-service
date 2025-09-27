@@ -2068,6 +2068,7 @@ packages:
   marklie-ts-core@1.6.8:
     resolution: {integrity: sha512-qXc+fLiF/sgHmja9kAknI8+JhIzLLP5kogTyh3HgahQY/zjAoEjAFUWDOaa+SdJqyXHeq8qXP66MtW/6yFbqpw==}
 
+
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
@@ -5136,6 +5137,7 @@ snapshots:
       semver: 7.7.1
 
   marklie-ts-core@1.6.8(@types/node@22.10.10)(pg@8.16.3):
+
     dependencies:
       '@google-cloud/pubsub': 4.11.0
       '@google-cloud/secret-manager': 6.1.0

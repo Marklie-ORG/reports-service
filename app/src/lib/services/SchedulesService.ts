@@ -139,11 +139,13 @@ export class SchedulesService {
         time: string;
         frequency: "weekly" | "monthly" | "cron";
       };
+
     }
   > {
     const gcs = GCSWrapper.getInstance("marklie-client-reports");
     const opt = await database.em.findOne(SchedulingOption, { uuid });
     if (!opt) throw MarklieError.notFound("SchedulingOption", uuid);
+
 
     const clientLogo = opt.customization?.logos?.client?.gcsUri
       ? await gcs.getSignedUrl(opt.customization.logos.client.gcsUri)
@@ -350,6 +352,7 @@ export class SchedulesService {
     schedule.schedule = newSchedule;
 
     schedule.review = { required: option.reviewRequired };
+
 
     const logos: NonNullable<typeof schedule.customization>["logos"] = {};
     if (option.images?.clientLogo) {
