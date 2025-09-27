@@ -618,8 +618,18 @@ export class FacebookDataUtil {
     limit: number = 10,
   ): any[] {
     return ads
-      .filter((ad) => ad[metric])
-      .sort((a, b) => parseFloat(b[metric]) - parseFloat(a[metric]))
+      .slice()
+      .sort((a, b) => {
+        const aVal = parseFloat(a[metric]) || 0;
+        const bVal = parseFloat(b[metric]) || 0;
+
+        if (!aVal && !bVal) return 0;
+
+        if (!aVal) return 1;
+        if (!bVal) return -1;
+
+        return bVal - aVal;
+      })
       .slice(0, limit);
   }
 
