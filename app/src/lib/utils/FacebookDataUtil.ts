@@ -617,9 +617,40 @@ export class FacebookDataUtil {
     metric: string = "impressions",
     limit: number = 10,
   ): any[] {
+    const getMetricValue = (ad: any, key: string): number => {
+      const list = ad?.data ?? [];
+      const row = Array.isArray(list)
+        ? list.find(
+            (m: any) =>
+              String(m?.name ?? "").toLowerCase() === key.toLowerCase(),
+          )
+        : undefined;
+      let val = row?.value;
+
+      if (val == null) return 0;
+
+      // normalize numbers / "12.3%" strings
+      if (typeof val === "string") {
+        val = parseFloat(val.replace("%", ""));
+        if (Number.isNaN(val)) return 0;
+      }
+      if (typeof val !== "number") return 0;
+
+      return val;
+    };
+
     return ads
-      .filter((ad) => ad[metric])
-      .sort((a, b) => parseFloat(b[metric]) - parseFloat(a[metric]))
+      .slice()
+      .sort((a, b) => {
+        const aVal = getMetricValue(a, metric);
+        const bVal = getMetricValue(b, metric);
+
+        if (!aVal && !bVal) return 0;
+        if (!aVal) return 1;
+        if (!bVal) return -1;
+
+        return bVal - aVal;
+      })
       .slice(0, limit);
   }
 
@@ -630,18 +661,13 @@ export class FacebookDataUtil {
     adAccountId: string,
     adsSettings?: { numberOfAds: number; sortAdsBy: string },
   ): Promise<ReportDataAd[]> {
-    const shownAds = this.getBestAdsByROAS(
-      adsInsights,
-      adsSettings?.sortAdsBy,
-      adsSettings?.numberOfAds,
-    );
     const api = await FacebookApi.create(organizationUuid, adAccountId);
 
     const creativeByAdId = new Map<string, any>();
     const igMediaIds = new Set<string>();
     const storyIdsByPage = new Map<string, string[]>();
 
-    for (const r of shownAds) {
+    for (const r of adsInsights) {
       const cr = r.creative || {};
       const adId = r.ad_id || r.adId;
       creativeByAdId.set(adId, cr);
@@ -657,7 +683,7 @@ export class FacebookDataUtil {
       if (mediaId) igMediaIds.add(mediaId);
     }
 
-    const reportAds: ReportDataAd[] = shownAds.map((row) => ({
+    const reportAds: ReportDataAd[] = adsInsights.map((row) => ({
       adId: row.ad_id || row.adId,
       adCreativeId: (row.creative?.id as string) || "",
       thumbnailUrl: row.creative?.thumbnail_url || "",
@@ -665,6 +691,12 @@ export class FacebookDataUtil {
       ad_name: row.ad_name || "",
       data: this.extractMetricsFromInsight(row, selectedAds, []),
     }));
+
+    const shownAds = this.getBestAdsByROAS(
+      reportAds,
+      adsSettings?.sortAdsBy,
+      adsSettings?.numberOfAds,
+    );
 
     const managedPages = await api.getManagedPages();
     const tokenByPage = new Map(
@@ -707,7 +739,7 @@ export class FacebookDataUtil {
       } catch {}
     }
 
-    for (const ra of reportAds) {
+    for (const ra of shownAds) {
       const cr = creativeByAdId.get(ra.adId);
 
       if (cr?.effective_instagram_media_id) {
@@ -762,7 +794,7 @@ export class FacebookDataUtil {
       }
     }
 
-    return reportAds;
+    return shownAds;
   }
 
   private static extractPageIdFromStoryId(storyId?: string): string | null {
