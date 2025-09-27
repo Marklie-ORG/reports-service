@@ -134,31 +134,63 @@ export class SchedulesService {
   async getSchedulingOption(uuid: string): Promise<
     ISchedulingOption & {
       images?: { clientLogo?: string; organizationLogo?: string };
+      schedule: ISchedulingOption["schedule"] & {
+        dayOfWeek: string;
+        time: string;
+        frequency: "weekly" | "monthly" | "cron";
+      };
     }
   > {
     const gcs = GCSWrapper.getInstance("marklie-client-reports");
     const opt = await database.em.findOne(SchedulingOption, { uuid });
     if (!opt) throw MarklieError.notFound("SchedulingOption", uuid);
 
-    console.log(opt);
     const clientLogo = opt.customization?.logos?.client?.gcsUri
       ? await gcs.getSignedUrl(opt.customization.logos.client.gcsUri)
       : undefined;
     const organizationLogo = opt.customization?.logos?.org?.gcsUri
       ? await gcs.getSignedUrl(opt.customization.logos.org.gcsUri)
       : undefined;
-
-    const base: ISchedulingOption = opt as unknown as ISchedulingOption;
-
     const images =
       clientLogo || organizationLogo
         ? {
-            ...(clientLogo ? ({ clientLogo } as const) : {}),
-            ...(organizationLogo ? ({ organizationLogo } as const) : {}),
+            ...(clientLogo ? { clientLogo } : {}),
+            ...(organizationLogo ? { organizationLogo } : {}),
           }
         : undefined;
 
-    return images ? { ...base, images } : base;
+    const base = opt as unknown as ISchedulingOption;
+
+    const tz = opt.schedule?.timezone || "UTC";
+    const cron = (opt.schedule?.cronExpression || "").trim().toUpperCase();
+
+    const nextRunDate = CronUtil.getNextRunDateFromCron(opt); // Date
+    const zdt = Temporal.Instant.from(
+      nextRunDate.toISOString(),
+    ).toZonedDateTimeISO(tz);
+
+    const time = `${String(zdt.hour).padStart(2, "0")}:${String(zdt.minute).padStart(2, "0")}`;
+    const dayOfWeek = zdt.toLocaleString("en-US", { weekday: "long" });
+
+    const frequency: "weekly" | "monthly" | "cron" =
+      /^\d{1,2}\s+\d{1,2}\s+\*\s+\*\s+(MON|TUE|WED|THU|FRI|SAT|SUN)$/.test(cron)
+        ? "weekly"
+        : /^\d{1,2}\s+\d{1,2}\s+\d{1,2}\s+\*\s+\*$/.test(cron)
+          ? "monthly"
+          : "cron";
+
+    const scheduleAugmented = {
+      ...(base as any).schedule,
+      dayOfWeek,
+      time,
+      frequency,
+    };
+
+    return {
+      ...(base as any),
+      ...(images ? { images } : {}),
+      schedule: scheduleAugmented,
+    };
   }
 
   async getSchedulingOptions(
@@ -309,14 +341,8 @@ export class SchedulesService {
     const newSchedule: typeof schedule.schedule = {
       timezone: option.timeZone,
       datePreset: option.datePreset,
-      time: option.time,
-      frequency: option.frequency,
       cronExpression: CronUtil.convertScheduleRequestToCron(option),
     };
-
-    if ("dayOfWeek" in option && option.dayOfWeek) {
-      newSchedule.dayOfWeek = option.dayOfWeek;
-    }
 
     if (schedule.schedule?.jobId) {
       newSchedule.jobId = schedule.schedule.jobId;
