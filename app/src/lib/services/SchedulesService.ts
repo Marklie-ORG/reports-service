@@ -309,15 +309,21 @@ export class SchedulesService {
     const newSchedule: typeof schedule.schedule = {
       timezone: option.timeZone,
       datePreset: option.datePreset,
+      time: option.time,
+      frequency: option.frequency,
       cronExpression: CronUtil.convertScheduleRequestToCron(option),
     };
+
+    if ("dayOfWeek" in option && option.dayOfWeek) {
+      newSchedule.dayOfWeek = option.dayOfWeek;
+    }
 
     if (schedule.schedule?.jobId) {
       newSchedule.jobId = schedule.schedule.jobId;
     }
     schedule.schedule = newSchedule;
 
-    schedule.review = { required: !!option.reviewRequired };
+    schedule.review = { required: option.reviewRequired };
 
     const logos: NonNullable<typeof schedule.customization>["logos"] = {};
     if (option.images?.clientLogo) {
