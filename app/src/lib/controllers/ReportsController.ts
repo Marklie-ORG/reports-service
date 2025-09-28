@@ -1,13 +1,12 @@
 import Router from "koa-router";
 import type { Context } from "koa";
 import { ReportsService } from "../services/ReportsService.js";
-import { MarklieError, User } from "marklie-ts-core";
+import { GCSWrapper, MarklieError, User } from "marklie-ts-core";
 import {
   type SendAfterReviewRequest,
-  type UpdateReportMetadataRequest
+  type UpdateReportMetadataRequest,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import type { ScheduledProviderConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
-import { ReportsUtil } from "lib/utils/ReportsUtil.js";
 
 export class ReportsController extends Router {
   private readonly reportsService: ReportsService;
@@ -107,15 +106,21 @@ export class ReportsController extends Router {
     }
 
     if (metadata.messages) {
-      await this.reportsService.updateReportMetadata(uuid, { messages: metadata.messages });
+      await this.reportsService.updateReportMetadata(uuid, {
+        messages: metadata.messages,
+      });
     }
 
     if (metadata.colors) {
-      await this.reportsService.updateReportMetadata(uuid, { colors: metadata.colors });
+      await this.reportsService.updateReportMetadata(uuid, {
+        colors: metadata.colors,
+      });
     }
 
     if (metadata.reportName) {
-      await this.reportsService.updateReportMetadata(uuid, { reportName: metadata.reportName });
+      await this.reportsService.updateReportMetadata(uuid, {
+        reportName: metadata.reportName,
+      });
     }
 
     ctx.body = {
@@ -126,15 +131,19 @@ export class ReportsController extends Router {
 
   private async downloadReportPdf(ctx: Context) {
     const uuid = ctx.params.uuid as string;
-
-    const pdfBuffer = await ReportsUtil.generateReportPdf(uuid);
+    const gcs = GCSWrapper.getInstance("marklie-client-reports");
     const report = await this.reportsService.getReport(uuid);
 
     if (!report) {
       throw MarklieError.notFound("Report", uuid, "reports-service");
     }
+    const pdfBase64 = await gcs.getReport(report.storage.pdfGcsUri);
 
-    const baseName = (report.messaging?.pdfFilename || report.customization?.title || "report").trim();
+    const baseName = (
+      report.messaging?.pdfFilename ||
+      report.customization?.title ||
+      "report"
+    ).trim();
     const safeBaseName = baseName.replace(/[^\w.\- ()]/g, "_");
     const filename = safeBaseName.toLowerCase().endsWith(".pdf")
       ? safeBaseName
@@ -142,9 +151,8 @@ export class ReportsController extends Router {
 
     ctx.set("Content-Type", "application/pdf");
     ctx.set("Content-Disposition", `attachment; filename="${filename}"`);
-    ctx.set("Content-Length", String(pdfBuffer.length));
-    ctx.body = pdfBuffer;
+    ctx.set("Content-Length", String(pdfBase64.length));
+    ctx.body = Buffer.from(pdfBase64, "base64");
     ctx.status = 200;
   }
-
 }
