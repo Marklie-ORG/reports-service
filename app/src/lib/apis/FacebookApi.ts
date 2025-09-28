@@ -642,7 +642,7 @@ export class FacebookApi {
     }>
   > {
     const params = {
-      fields: "id,name,custom_event_type,rule,is_archived",
+      fields: "id,name,is_archived",
       include_archived: !!opts.includeArchived,
       limit: opts.pageLimit ?? 200,
     };
@@ -696,6 +696,7 @@ export class FacebookApi {
       }),
     );
 
+    console.log(out);
     return out;
   }
 }
