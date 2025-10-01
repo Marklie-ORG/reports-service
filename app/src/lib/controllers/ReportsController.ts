@@ -1,12 +1,13 @@
 import Router from "koa-router";
 import type { Context } from "koa";
 import { ReportsService } from "../services/ReportsService.js";
-import { GCSWrapper, MarklieError, User } from "marklie-ts-core";
+import { MarklieError, User } from "marklie-ts-core";
 import {
   type SendAfterReviewRequest,
   type UpdateReportMetadataRequest,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import type { ScheduledProviderConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
+import { ReportsUtil } from "../utils/ReportsUtil.js";
 
 export class ReportsController extends Router {
   private readonly reportsService: ReportsService;
@@ -131,13 +132,13 @@ export class ReportsController extends Router {
 
   private async downloadReportPdf(ctx: Context) {
     const uuid = ctx.params.uuid as string;
-    const gcs = GCSWrapper.getInstance("marklie-client-reports");
+
+    const pdfBuffer = await ReportsUtil.generateReportPdf(uuid);
     const report = await this.reportsService.getReport(uuid);
 
     if (!report) {
       throw MarklieError.notFound("Report", uuid, "reports-service");
     }
-    const pdfBase64 = await gcs.getReport(report.storage.pdfGcsUri);
 
     const baseName = (
       report.messaging?.pdfFilename ||
@@ -151,8 +152,8 @@ export class ReportsController extends Router {
 
     ctx.set("Content-Type", "application/pdf");
     ctx.set("Content-Disposition", `attachment; filename="${filename}"`);
-    ctx.set("Content-Length", String(pdfBase64.length));
-    ctx.body = Buffer.from(pdfBase64, "base64");
+    ctx.set("Content-Length", String(pdfBuffer.length));
+    ctx.body = pdfBuffer;
     ctx.status = 200;
   }
 }

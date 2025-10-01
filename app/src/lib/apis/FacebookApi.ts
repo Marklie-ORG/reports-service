@@ -280,14 +280,14 @@ export class FacebookApi {
     return set.has("reach") || set.has("frequency") || set.has("cpp");
   }
 
-  private static monthsBetween(startISO: string, endISO: string): number {
-    const s = new Date(startISO);
-    const e = new Date(endISO);
-    const months =
-      (e.getUTCFullYear() - s.getUTCFullYear()) * 12 +
-      (e.getUTCMonth() - s.getUTCMonth());
-    return months + (e.getUTCDate() >= s.getUTCDate() ? 0 : -1);
-  }
+  // private static monthsBetween(startISO: string, endISO: string): number {
+  //   const s = new Date(startISO);
+  //   const e = new Date(endISO);
+  //   const months =
+  //     (e.getUTCFullYear() - s.getUTCFullYear()) * 12 +
+  //     (e.getUTCMonth() - s.getUTCMonth());
+  //   return months + (e.getUTCDate() >= s.getUTCDate() ? 0 : -1);
+  // }
 
   private adaptPollInterval(prev: number, utilPct?: number): number {
     if (typeof utilPct === "number" && utilPct >= 80) {
@@ -360,7 +360,7 @@ export class FacebookApi {
       customDateRange?: { since: string; until: string };
       breakdowns?: string[];
       actionBreakdowns?: string[];
-      timeIncrement?: number;
+      timeIncrement?: number | "all_days";
       additionalFields?: string[];
     } = {},
   ): Promise<any[]> {
@@ -370,7 +370,6 @@ export class FacebookApi {
       breakdowns = [],
       actionBreakdowns = [],
       timeIncrement,
-      additionalFields = [],
     } = options;
 
     if (!fields.length) {
@@ -386,8 +385,8 @@ export class FacebookApi {
         ? { time_range: customDateRange }
         : { date_preset: datePreset }),
       __cppo: 1,
-      ...(timeIncrement ? { time_increment: timeIncrement } : {}),
-      ...(additionalFields ? { additionalFields: additionalFields } : {}),
+      ...(timeIncrement !== undefined ? { time_increment: timeIncrement } : {}),
+      limit: 500,
     };
 
     if (breakdowns.length) params.breakdowns = breakdowns.join(",");
@@ -396,23 +395,13 @@ export class FacebookApi {
 
     const endpoint = `${this.accountId}/insights`;
 
-    let forceAsync = false;
-    if (
-      customDateRange &&
-      breakdowns.length > 0 &&
-      this.containsReachFields(fields) &&
-      FacebookApi.monthsBetween(customDateRange.since, customDateRange.until) >
-        13
-    ) {
-      forceAsync = true;
-    }
-
+    // Allow sync when custom range + all_days + no breakdowns; async otherwise
     const isLargeQuery =
-      forceAsync ||
-      !!customDateRange ||
       breakdowns.length > 0 ||
       actionBreakdowns.length > 0 ||
-      !["today", "yesterday", "last_7d"].includes(datePreset);
+      (customDateRange
+        ? timeIncrement !== "all_days"
+        : !["today", "yesterday", "last_7d"].includes(datePreset));
 
     logger.info("Fetching Facebook insights", {
       endpoint,
@@ -424,11 +413,8 @@ export class FacebookApi {
     });
 
     try {
-      if (!isLargeQuery) {
-        const res = await this.executeWithCircuitBreaker(async () => {
-          return this.api.get(endpoint, { params: { ...params, limit: 100 } });
-        });
-        return res.data.data || [];
+      if (isLargeQuery) {
+        return await this.paginateAll<any>(endpoint, params, 1000);
       }
 
       return await this.fetchAsyncInsights(
@@ -457,7 +443,6 @@ export class FacebookApi {
         return this.getInsightsSmart(level, cleaned, options);
       }
 
-      // Data per call error → fallback to async if not already
       const fbCode = error?.response?.data?.error?.code;
       const fbSub = error?.response?.data?.error?.error_subcode;
       if (fbCode === 100 && fbSub === 1487534) {
@@ -574,7 +559,7 @@ export class FacebookApi {
     datePreset: string,
   ): Promise<any[]> {
     const insights = await this.getInsightsSmart("ad", [...fields, "ad_id"], {
-      datePreset,
+      datePreset: datePreset,
       actionBreakdowns: ["action_type"],
     });
 
@@ -608,6 +593,33 @@ export class FacebookApi {
         const getActionValue = (type: string) =>
           insight.actions?.find((a: any) => a.action_type === type)?.value ?? 0;
 
+        const customConversions: Record<string, number> = {};
+        const customConversionValues: Record<string, number> = {};
+
+        if (Array.isArray(insight.actions)) {
+          for (const a of insight.actions) {
+            const t = a?.action_type ?? "";
+            const m = /^offsite_conversion\.custom\.(\d+)$/.exec(t);
+            if (m) {
+              const id = m[1];
+              const num = Number(a.value ?? 0);
+              customConversions[id] = (customConversions[id] ?? 0) + num;
+            }
+          }
+        }
+        if (Array.isArray(insight.action_values)) {
+          for (const av of insight.action_values) {
+            const t = av?.action_type ?? "";
+            const m = /^offsite_conversion\.custom\.(\d+)$/.exec(t);
+            if (m) {
+              const id = m[1];
+              const num = Number(av.value ?? 0);
+              customConversionValues[id] =
+                (customConversionValues[id] ?? 0) + num;
+            }
+          }
+        }
+
         return {
           ...insight,
           purchases: getActionValue("purchase"),
@@ -622,6 +634,8 @@ export class FacebookApi {
               cr?.effective_instagram_media_id ?? null,
             effective_object_story_id: cr?.effective_object_story_id ?? null,
           },
+          customConversions,
+          customConversionValues,
         };
       });
     } catch (error) {
@@ -629,6 +643,7 @@ export class FacebookApi {
       return insights;
     }
   }
+
   public async listCustomConversions(
     adAccountId: string,
     opts: { includeArchived?: boolean; pageLimit?: number } = {},
@@ -642,7 +657,7 @@ export class FacebookApi {
     }>
   > {
     const params = {
-      fields: "id,name,is_archived",
+      fields: "id,name",
       include_archived: !!opts.includeArchived,
       limit: opts.pageLimit ?? 200,
     };
@@ -696,7 +711,6 @@ export class FacebookApi {
       }),
     );
 
-    console.log(out);
     return out;
   }
 }
