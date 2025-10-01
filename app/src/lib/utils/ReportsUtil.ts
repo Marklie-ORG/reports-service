@@ -234,7 +234,6 @@ export class ReportsUtil {
           `Error processing ${providerConfig.provider} data:`,
           error,
         );
-        console.log(error);
       }
     }
 
