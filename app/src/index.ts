@@ -45,7 +45,6 @@ app.use(koabodyparser());
 app.use(CookiesMiddleware);
 app.use(
   AuthMiddleware([
-    /^\/api\/reports\/[^/]+$/,
     "/api/scheduling-options/available-metrics",
   ]),
 );
@@ -70,3 +69,4 @@ process.on("SIGINT", async () => {
   await database.orm.close();
   process.exit(0);
 });
+

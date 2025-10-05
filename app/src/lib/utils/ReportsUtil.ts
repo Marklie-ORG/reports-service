@@ -1,5 +1,6 @@
 import {
   ActivityLog,
+  AuthenticationUtil,
   Database,
   FACEBOOK_DATE_PRESETS,
   GCSWrapper,
@@ -397,10 +398,25 @@ export class ReportsUtil {
 
     try {
       const page = await browser.newPage();
+
+      await page.goto(`${baseUrl}/pdf-report/${reportUuid}`);
+      
+      // setting system access token to the page so that puppeteer can call "get report"
+      const accessToken = AuthenticationUtil.signSystemAccessToken();
+      await page.evaluate((token) => {
+        const storage = (globalThis as typeof globalThis & {
+          localStorage: { setItem(key: string, value: string): void };
+        }).localStorage;
+
+        storage.setItem("accessToken", token);
+      }, accessToken);
+
+      // going to the page again, because previous time there was no access token in local storage
       await page.goto(`${baseUrl}/pdf-report/${reportUuid}`, {
         waitUntil: "domcontentloaded",
         timeout: 120000,
       });
+
       await new Promise((res) => setTimeout(res, 3000));
 
       const dashboardHeight = await page.evaluate(() => {
