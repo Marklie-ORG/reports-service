@@ -323,6 +323,7 @@ export class FacebookDataUtil {
       conversion_value: 0,
       engagement: 0,
       leads: 0,
+      landing_page_views: 0,
     };
 
     const customMetricMap: Record<string, number> = {};
@@ -375,6 +376,10 @@ export class FacebookDataUtil {
           "omni_purchase",
         );
       }
+      aggregated.landing_page_views += this.getActionValue(
+        campaign.actions,
+        "landing_page_view",
+      );
     }
 
     const metrics: Record<string, any> = {
@@ -403,8 +408,8 @@ export class FacebookDataUtil {
       cost_per_lead:
         aggregated.leads > 0 ? aggregated.spend / aggregated.leads : 0,
       conversion_rate:
-        aggregated.clicks > 0
-          ? (aggregated.purchases / aggregated.clicks) * 100
+        aggregated.landing_page_views > 0
+          ? (aggregated.purchases / aggregated.landing_page_views) * 100
           : 0,
       ...customMetricMap,
     };
@@ -490,7 +495,10 @@ export class FacebookDataUtil {
       insight.action_values,
       "omni_purchase",
     );
-
+    const landing_page_views = this.getActionValue(
+      insight.actions,
+      "landing_page_view",
+    );
     const metricsMap: Record<string, any> = {
       spend,
       impressions,
@@ -510,7 +518,8 @@ export class FacebookDataUtil {
       cost_per_purchase: purchases > 0 ? spend / purchases : 0,
       cost_per_add_to_cart: add_to_cart > 0 ? spend / add_to_cart : 0,
       cost_per_lead: leads > 0 ? spend / leads : 0,
-      conversion_rate: clicks > 0 ? (purchases / clicks) * 100 : 0,
+      conversion_rate:
+        landing_page_views > 0 ? (purchases / landing_page_views) * 100 : 0,
     };
 
     if (insight.actions) {
