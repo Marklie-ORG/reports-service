@@ -158,7 +158,7 @@ export class FacebookDataUtil {
       const adsCustom = adAccountConfig.ads.customMetrics ?? [];
 
       const adsInsights = await api.getAdInsightsWithThumbnails(
-        resolvedAds,
+        [...resolvedAds, ...["actions", "action_values"]], // Andrii added this shit "...["actions", "action_values"]", because previously custom metrics didn't get fetched for creatives at all. Change it if needed.
         datePreset,
       );
       result.ads = await this.processAds(
@@ -420,8 +420,9 @@ export class FacebookDataUtil {
       }
     }
 
+    // TODO: CUSTOM VETSOCIAL CODE
     const quotesCm = selectedCustomMetrics.find((cm) =>
-      cm.name.toLowerCase().includes("quote"),
+      cm.name.toLowerCase().includes("quote") || cm.name.toLowerCase().includes("anvraag"),
     );
     if (quotesCm) {
       const qName = quotesCm.name;
@@ -544,8 +545,9 @@ export class FacebookDataUtil {
       }
     }
 
+    // TODO: CUSTOM VETSOCIAL CODE
     const quotesCm = customMetrics.find((cm) =>
-      cm.name.toLowerCase().includes("quote"),
+      cm.name.toLowerCase().includes("quote") || cm.name.toLowerCase().includes("anvraag"),
     );
     if (quotesCm) {
       const qName = quotesCm.name;
@@ -588,9 +590,11 @@ export class FacebookDataUtil {
     selectedCampaigns: string[],
     allCustomMetrics: CustomMetric[],
   ): ReportDataCampaign[] {
-    const topCampaigns = this.getTopCampaigns(insights, 15);
+    
+    // TODO: CUSTOM VETSOCIAL SORTING
+    const sortMetric = allCustomMetrics.find((metric) => metric.name.toLowerCase().includes("quote") || metric.name.toLowerCase().includes("anvraag"))?.name || "spend";
 
-    return topCampaigns.map((campaign, index) => ({
+    const campaigns = insights.map((campaign, index) => ({
       index,
       campaign_name: campaign.campaign_name || `Campaign ${index + 1}`,
       data: this.extractMetricsFromInsight(
@@ -598,58 +602,15 @@ export class FacebookDataUtil {
         selectedCampaigns.filter((m) => m !== "campaign_name"),
         allCustomMetrics,
       ),
-    }));
-  }
+    }))
 
-  private static getTopCampaigns(campaigns: any[], limit: number = 10): any[] {
-    if (!campaigns || campaigns.length === 0) {
-      return [];
-    }
-
-    // Define priority metrics for campaign filtering (in order of preference)
-    const metricPriority = [
-      "spend", // Most important - shows budget allocation
-      "impressions", // Shows reach and visibility
-      "clicks", // Shows engagement
-      "purchases", // Shows conversions
-      "conversion_value", // Shows revenue
-      "reach", // Shows unique reach
-      "add_to_cart", // Shows interest
-    ];
-
-    let sortMetric = "spend"; // Default to spend
-    let filteredCampaigns: any[] = [];
-
-    for (const metric of metricPriority) {
-      filteredCampaigns = campaigns.filter((campaign) => {
-        const value = Number(campaign[metric] || 0);
-        return value > 0;
-      });
-
-      if (filteredCampaigns.length > 0) {
-        sortMetric = metric;
-        console.log(
-          `Filtering campaigns by ${sortMetric} - found ${filteredCampaigns.length} campaigns with data`,
-        );
-        break;
-      }
-    }
-
-    if (filteredCampaigns.length === 0) {
-      console.log(
-        "No campaigns found with priority metrics, returning all campaigns",
-      );
-      filteredCampaigns = campaigns;
-      sortMetric = "spend";
-    }
-
-    const sortedCampaigns = filteredCampaigns.sort((a, b) => {
-      const valueA = Number(a[sortMetric] || 0);
-      const valueB = Number(b[sortMetric] || 0);
+    const sortedCampaigns = campaigns.sort((a, b) => {
+      const valueA = Number(a.data.find((m) => m.name === sortMetric)?.value || 0);
+      const valueB = Number(b.data.find((m) => m.name === sortMetric)?.value || 0);
       return valueB - valueA;
     });
 
-    return sortedCampaigns.slice(0, limit);
+    return sortedCampaigns.slice(0, 15);
   }
 
   private static getBestAdsByROAS(
@@ -853,7 +814,6 @@ export class FacebookDataUtil {
 
     for (const row of adsInsights) {
       const adName = row.ad_name || "Unnamed Ad";
-      console.log(row);
       if (!nameMap.has(adName)) {
         nameMap.set(adName, { ...row });
         continue;
