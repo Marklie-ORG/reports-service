@@ -24,7 +24,7 @@ const config = ReportsConfigService.getInstance();
 
 const database = await Database.getInstance();
 logger.info("Database connected!");
-
+ 
 const reportQueue = ReportQueueService.getInstance();
 
 app.use(
@@ -69,4 +69,3 @@ process.on("SIGINT", async () => {
   await database.orm.close();
   process.exit(0);
 });
-
