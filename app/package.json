@@ -28,7 +28,7 @@
     "dotenv": "^16.5.0",
     "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.2",
-    "marklie-ts-core": "1.6.17",
+    "marklie-ts-core": "1.6.18",
     "mikro-orm": "^6.5.8",
     "p-limit": "^6.2.0",
     "puppeteer": "^24.6.1",
