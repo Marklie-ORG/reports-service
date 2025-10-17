@@ -3,9 +3,7 @@ import type { Context } from "koa";
 import { MarklieError, User } from "marklie-ts-core";
 import type { ScheduleBulkActionRequest } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { SchedulesService } from "../services/SchedulesService.js";
-import type {
-  ReportScheduleRequest
-} from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
+import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 export class SchedulesController extends Router {
   private readonly schedulesService: SchedulesService;
@@ -20,7 +18,7 @@ export class SchedulesController extends Router {
     this.post("/schedule", this.scheduleReport.bind(this));
 
     this.get("/client/:clientUuid", this.getSchedulingOptions.bind(this));
-    
+
     this.put("/stop", this.stopSchedulingOptions.bind(this));
     this.put("/delete", this.deleteSchedulingOption.bind(this));
     this.put("/activate", this.activateSchedulingOptions.bind(this));

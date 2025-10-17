@@ -303,6 +303,7 @@ export function convertSectionsToScheduledConfigs(
         metrics: account.metrics,
         customMetrics: account.customMetrics ?? undefined,
         adsSettings: account.adsSettings ?? undefined,
+        campaignsSettings: account.campaignsSettings ?? undefined,
       };
 
       const existing = map.get(adAccountId)!;
@@ -329,5 +330,10 @@ export function convertSectionsToScheduledConfigs(
 }
 
 function emptyGroup(): ScheduledMetricGroup<any> {
-  return { order: 0, metrics: [] };
+  return {
+    adsSettings: { maxAds: 0, sortBy: "" },
+    campaignsSettings: { maxCampaigns: 0, sortBy: "" },
+    order: 0,
+    metrics: [],
+  };
 }

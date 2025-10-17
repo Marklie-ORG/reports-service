@@ -108,6 +108,7 @@ export class FacebookDataUtil {
           insightsAggregate,
           selectedCampaigns,
           campaignsCustom,
+          adAccountConfig.campaigns.campaignsSettings,
         );
       }
     }
@@ -421,8 +422,10 @@ export class FacebookDataUtil {
     }
 
     // TODO: CUSTOM VETSOCIAL CODE
-    const quotesCm = selectedCustomMetrics.find((cm) =>
-      cm.name.toLowerCase().includes("quote") || cm.name.toLowerCase().includes("anvraag"),
+    const quotesCm = selectedCustomMetrics.find(
+      (cm) =>
+        cm.name.toLowerCase().includes("quote") ||
+        cm.name.toLowerCase().includes("anvraag"),
     );
     if (quotesCm) {
       const qName = quotesCm.name;
@@ -546,8 +549,10 @@ export class FacebookDataUtil {
     }
 
     // TODO: CUSTOM VETSOCIAL CODE
-    const quotesCm = customMetrics.find((cm) =>
-      cm.name.toLowerCase().includes("quote") || cm.name.toLowerCase().includes("anvraag"),
+    const quotesCm = customMetrics.find(
+      (cm) =>
+        cm.name.toLowerCase().includes("quote") ||
+        cm.name.toLowerCase().includes("anvraag"),
     );
     if (quotesCm) {
       const qName = quotesCm.name;
@@ -589,28 +594,40 @@ export class FacebookDataUtil {
     insights: any[],
     selectedCampaigns: string[],
     allCustomMetrics: CustomMetric[],
+    settings?: { maxCampaigns?: number; sortBy?: string },
   ): ReportDataCampaign[] {
-    
-    // TODO: CUSTOM VETSOCIAL SORTING
-    const sortMetric = allCustomMetrics.find((metric) => metric.name.toLowerCase().includes("quote") || metric.name.toLowerCase().includes("anvraag"))?.name || "spend";
-
+    const want = settings?.sortBy?.toLowerCase().trim();
+    console.log(settings);
+    console.log(want);
     const campaigns = insights.map((campaign, index) => ({
       index,
       campaign_name: campaign.campaign_name || `Campaign ${index + 1}`,
+      raw: campaign,
       data: this.extractMetricsFromInsight(
         campaign,
         selectedCampaigns.filter((m) => m !== "campaign_name"),
         allCustomMetrics,
       ),
-    }))
+    }));
 
-    const sortedCampaigns = campaigns.sort((a, b) => {
-      const valueA = Number(a.data.find((m) => m.name === sortMetric)?.value || 0);
-      const valueB = Number(b.data.find((m) => m.name === sortMetric)?.value || 0);
-      return valueB - valueA;
-    });
+    const hasWanted =
+      !!want &&
+      campaigns.some((c) => c.data.some((d) => d.name.toLowerCase() === want));
 
-    return sortedCampaigns.slice(0, 15);
+    const getNum = (c: (typeof campaigns)[number]): number => {
+      if (!want) return Number.NEGATIVE_INFINITY;
+      const v = c.data.find((d) => d.name.toLowerCase() === want)?.value;
+      const n = typeof v === "number" ? v : Number(v);
+      return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY;
+    };
+
+    const sorted = hasWanted
+      ? campaigns.slice().sort((a, b) => getNum(b) - getNum(a)) // desc
+      : campaigns;
+
+    return sorted
+      .slice(0, settings?.maxCampaigns ?? 15)
+      .map(({ raw, ...rest }) => rest);
   }
 
   private static getBestAdsByROAS(
@@ -660,7 +677,7 @@ export class FacebookDataUtil {
     selectedAds: string[],
     organizationUuid: string,
     adAccountId: string,
-    adsSettings?: { numberOfAds: number; sortAdsBy: string },
+    adsSettings?: { maxAds: number; sortBy: string },
     customMetrics: CustomMetric[] = [],
   ): Promise<ReportDataAd[]> {
     const api = await FacebookApi.create(organizationUuid, adAccountId);
@@ -701,8 +718,8 @@ export class FacebookDataUtil {
 
     const shownAds = this.getBestAdsByROAS(
       reportAds,
-      adsSettings?.sortAdsBy,
-      adsSettings?.numberOfAds,
+      adsSettings?.sortBy,
+      adsSettings?.maxAds,
     );
 
     const managedPages = await api.getManagedPages();
