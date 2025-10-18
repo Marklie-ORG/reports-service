@@ -17,6 +17,8 @@ import { ReportQueueService } from "./lib/services/ReportsQueueService.js";
 import { ReportsController } from "./lib/controllers/ReportsController.js";
 import { ReportsConfigService } from "./lib/config/config.js";
 import { SchedulesController } from "./lib/controllers/SchedulesController.js";
+import { CustomFormulasController } from "lib/controllers/CustomFormulasController.js";
+
 
 const app = new Koa();
 const logger = Log.getInstance();
@@ -58,6 +60,9 @@ app.use(new ReportsController().allowedMethods());
 
 app.use(new SchedulesController().routes());
 app.use(new SchedulesController().allowedMethods());
+
+app.use(new CustomFormulasController().routes());
+app.use(new CustomFormulasController().allowedMethods());
 
 const PORT = config.get("PORT");
 app.listen(PORT, () => {

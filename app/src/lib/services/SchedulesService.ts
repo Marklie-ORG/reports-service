@@ -1,5 +1,6 @@
 import { ReportsUtil } from "../utils/ReportsUtil.js";
 import {
+  AdAccountCustomFormula,
   Database,
   GCSWrapper,
   Log,
@@ -469,11 +470,25 @@ export class SchedulesService {
 
     const api = await FacebookApi.create(client.organization.uuid);
 
-    const adAccountIds = client
+    const adAccounts = client
       .adAccounts!.getItems()
-      .map((acc) => acc.adAccountId);
+      .map((acc) => ({adAccountId: acc.adAccountId, uuid: acc.uuid}));
+
     const customMetricsByAdAccount =
-      await api.getCustomConversionsForAdAccounts(adAccountIds);
+      await api.getCustomConversionsForAdAccounts(adAccounts.map((acc) => acc.adAccountId));
+      
+    const customFormulas = await database.em.find(
+      AdAccountCustomFormula,
+      { adAccount: { $in: adAccounts.map((acc) => acc.uuid) } },
+      { populate: ["adAccount"] },
+    );
+    
+    const customFormulasByAdAccount = customFormulas.reduce<Record<string, AdAccountCustomFormula[]>>((acc, formula) => {
+      const key = formula.adAccount?.adAccountId ?? "";
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(formula);
+      return acc;
+    }, {});
 
     const result: {
       adAccountId: string;
@@ -484,10 +499,11 @@ export class SchedulesService {
         ads: string[];
         campaigns: string[];
         customMetrics: { id: string; name: string }[];
+        customFormulas: AdAccountCustomFormula[];
       };
     }[] = [];
 
-    for (const adAccountId of adAccountIds) {
+    for (const adAccountId of adAccounts.map((acc) => acc.adAccountId)) {
       result.push({
         adAccountId,
         adAccountName:
@@ -501,6 +517,7 @@ export class SchedulesService {
           ads: Object.keys(AVAILABLE_ADS_METRICS),
           campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS),
           customMetrics: customMetricsByAdAccount[adAccountId] ?? [],
+          customFormulas: customFormulasByAdAccount[adAccountId] ?? [],
         },
       });
     }

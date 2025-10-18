@@ -8,11 +8,19 @@ import {
   type ScheduledAdAccountConfig,
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 import type {
+  CustomFormula,
+  ExtendedCustomFormula,
   ReportDataAd,
   ReportDataCampaign,
   ReportDataGraph,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import type { CustomMetric } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces";
+import { evaluate, parse, type SymbolNode } from 'mathjs';
+import { AdAccountCustomFormula } from "marklie-ts-core/dist/lib/entities/AdAccountCustomFormula.js";
+import { Database } from "marklie-ts-core/dist/lib/db/config/DB.js";
+import { SchedulesService } from "lib/services/SchedulesService.js";
+
+
 
 export class FacebookDataUtil {
   private static resolveMetricsFromMap(
@@ -30,11 +38,199 @@ export class FacebookDataUtil {
     return Number(values?.find((a) => a.action_type === type)?.value || 0);
   }
 
+  private static async getExtendedCustomFormulas(adAccountConfig: ScheduledAdAccountConfig): Promise<{
+    kpisExtendedCustomFormulas: ExtendedCustomFormula[],
+    campaignsExtendedCustomFormulas: ExtendedCustomFormula[],
+    graphsExtendedCustomFormulas: ExtendedCustomFormula[],
+    adsExtendedCustomFormulas: ExtendedCustomFormula[],
+  }> {
+    const database = await Database.getInstance();
+
+    const customFormulaConfigs: Record<
+      "kpis" | "campaigns" | "graphs" | "ads",
+      CustomFormula[]
+    > = {
+      kpis: adAccountConfig.kpis.customFormulas ?? [],
+      campaigns: adAccountConfig.campaigns.customFormulas ?? [],
+      graphs: adAccountConfig.graphs.customFormulas ?? [],
+      ads: adAccountConfig.ads.customFormulas ?? [],
+    };
+
+    const customFormulaUuids = [
+      ...new Set(
+        Object.values(customFormulaConfigs)
+          .flat()
+          .map((cf) => cf.uuid),
+      ),
+    ];
+
+    const storedCustomFormulas = customFormulaUuids.length
+      ? await database.em.find(AdAccountCustomFormula, {
+          uuid: { $in: customFormulaUuids },
+        })
+      : [];
+
+    const storedCustomFormulaMap = new Map(
+      storedCustomFormulas.map((formula) => [formula.uuid, formula]),
+    );
+
+    const mergeWithStoredFormula = (
+      configs: CustomFormula[],
+    ): ExtendedCustomFormula[] =>
+      configs
+        .map((cf) => {
+          const stored = storedCustomFormulaMap.get(cf.uuid);
+          if (!stored) return null;
+          return {
+            ...cf,
+            formula: stored.formula,
+            format: stored.format,
+            description: stored.description ?? "",
+          };
+        })
+        .filter((cf): cf is ExtendedCustomFormula => cf !== null);
+
+    const kpisExtendedCustomFormulas = mergeWithStoredFormula(customFormulaConfigs.kpis);
+    const campaignsExtendedCustomFormulas = mergeWithStoredFormula(customFormulaConfigs.campaigns);
+    const graphsExtendedCustomFormulas = mergeWithStoredFormula(customFormulaConfigs.graphs);
+    const adsExtendedCustomFormulas = mergeWithStoredFormula(customFormulaConfigs.ads);
+
+    return {
+      kpisExtendedCustomFormulas,
+      campaignsExtendedCustomFormulas,
+      graphsExtendedCustomFormulas,
+      adsExtendedCustomFormulas,
+    }
+  }
+
+  private static async getMetricsIncludedInCustomFormulas(
+    adAccountConfig: ScheduledAdAccountConfig, 
+    clientUuid: string, 
+    extendedCustomFormulas: {
+      kpisExtendedCustomFormulas: ExtendedCustomFormula[],
+      campaignsExtendedCustomFormulas: ExtendedCustomFormula[],
+      graphsExtendedCustomFormulas: ExtendedCustomFormula[],
+      adsExtendedCustomFormulas: ExtendedCustomFormula[],
+    }): Promise<{
+        kpiDefaultMetrics: string[],
+        kpiCustomMetrics: CustomMetric[],
+
+        campaignsDefaultMetrics: string[],
+        campaignsCustomMetrics: CustomMetric[],
+
+        graphsDefaultMetrics: string[],
+        graphsCustomMetrics: CustomMetric[],
+
+        adsDefaultMetrics: string[],
+        adsCustomMetrics: CustomMetric[],
+      }> 
+   {
+    const kpiDefaultMetrics: string[] = []
+    const kpiCustomMetrics: CustomMetric[] = []
+
+    const campaignsDefaultMetrics: string[] = []
+    const campaignsCustomMetrics: CustomMetric[] = []
+
+    const graphsDefaultMetrics: string[] = []
+    const graphsCustomMetrics: CustomMetric[] = []
+
+    const adsDefaultMetrics: string[] = []
+    const adsCustomMetrics: CustomMetric[] = []
+
+    const {
+      kpisExtendedCustomFormulas,
+      campaignsExtendedCustomFormulas,
+      graphsExtendedCustomFormulas,
+      adsExtendedCustomFormulas,
+    } = extendedCustomFormulas;
+
+    const customFormulas = new Set([
+      ...kpisExtendedCustomFormulas.map(cf => cf.formula), 
+      ...campaignsExtendedCustomFormulas.map(cf => cf.formula), 
+      ...graphsExtendedCustomFormulas.map(cf => cf.formula), 
+      ...adsExtendedCustomFormulas.map(cf => cf.formula), 
+    ]);
+
+    const customFormulasVariables = new Set<string>();
+
+    const getVariables = (formula: string) => {
+      const node = parse(formula);
+      return [...new Set(
+        node.filter(n => (n as SymbolNode).isSymbolNode).map(n => (n as SymbolNode).name)
+      )];
+    }
+
+    for (let customFormula of customFormulas) {
+      for (const variable of getVariables(customFormula)) {
+        customFormulasVariables.add(variable);
+      }
+    }
+
+    const customFormulasHaveCustomMetrics: boolean = Array.from(customFormulasVariables).join("").includes("custom_metric_");
+
+    const customFormulasDefaultVariables = new Set<string>();
+    const customFormulasCustomVariablesIds = new Set<string>();
+
+    for (let variable of customFormulasVariables) {
+      if (!variable.startsWith("custom_metric_")) {
+        customFormulasDefaultVariables.add(variable);
+      } 
+      else {
+        customFormulasCustomVariablesIds.add(variable.split("custom_metric_")[1]);
+      }
+    }
+
+    if (customFormulasDefaultVariables.size) {
+      kpiDefaultMetrics.push(...Array.from(customFormulasDefaultVariables));
+      campaignsDefaultMetrics.push(...Array.from(customFormulasDefaultVariables));
+      graphsDefaultMetrics.push(...Array.from(customFormulasDefaultVariables));
+      adsDefaultMetrics.push(...Array.from(customFormulasDefaultVariables));
+    }
+
+    if (customFormulasHaveCustomMetrics) {
+      const schedulesService = new SchedulesService();
+      const availableMetrics = await schedulesService.getAvailableMetricsForAdAccounts(clientUuid);
+      const availableCustomMetrics = availableMetrics.find(adAccount => adAccount.adAccountId === adAccountConfig.adAccountId)?.adAccountMetrics.customMetrics;
+      console.log('availableCustomMetrics', availableCustomMetrics)
+
+      if (availableCustomMetrics) {
+        availableCustomMetrics.forEach(availableCustomMetric => {
+          if (customFormulasCustomVariablesIds.has(availableCustomMetric.id)) {
+            kpiCustomMetrics.push({...availableCustomMetric, order: -1});
+            campaignsCustomMetrics.push({...availableCustomMetric, order: -1});
+            graphsCustomMetrics.push({...availableCustomMetric, order: -1});
+            adsCustomMetrics.push({...availableCustomMetric, order: -1});
+          }
+        });
+      }
+
+    }
+
+    console.log('customFormulas', customFormulas)
+    console.log('customFormulasVariables', customFormulasVariables)
+    console.log('customFormulasHaveCustomMetrics', customFormulasHaveCustomMetrics)
+    console.log('customFormulasDefaultVariables', customFormulasDefaultVariables)
+
+    // CUSTOM FORMULAS END
+
+    return {
+      kpiDefaultMetrics: kpiDefaultMetrics,
+      kpiCustomMetrics: kpiCustomMetrics,
+      campaignsDefaultMetrics: campaignsDefaultMetrics,
+      campaignsCustomMetrics: campaignsCustomMetrics,
+      graphsDefaultMetrics: graphsDefaultMetrics,
+      graphsCustomMetrics: graphsCustomMetrics,
+      adsDefaultMetrics: adsDefaultMetrics,
+      adsCustomMetrics: adsCustomMetrics,
+    }
+  }
+
   public static async getAdAccountReportData(
     organizationUuid: string,
     adAccountId: string,
     datePreset: string,
     adAccountConfig: ScheduledAdAccountConfig,
+    clientUuid: string,
   ): Promise<
     Partial<{
       kpis: Metric[];
@@ -45,18 +241,20 @@ export class FacebookDataUtil {
   > {
     const api = await FacebookApi.create(organizationUuid, adAccountId);
 
-    const selectedKpis = this.extractOrderedMetricNames(adAccountConfig.kpis);
-    const selectedGraphs = this.extractOrderedMetricNames(
-      adAccountConfig.graphs,
-    );
-    const selectedCampaigns = this.extractOrderedMetricNames(
-      adAccountConfig.campaigns,
-    );
-    const selectedAds = this.extractOrderedMetricNames(adAccountConfig.ads);
+    const kpisDefaultMetrics = this.extractOrderedMetricNames(adAccountConfig.kpis);
+    const graphsDefaultMetrics = this.extractOrderedMetricNames(adAccountConfig.graphs);
+    const campaignsDefaultMetrics = this.extractOrderedMetricNames(adAccountConfig.campaigns);
+    const adsDefaultMetrics = this.extractOrderedMetricNames(adAccountConfig.ads);
 
-    const kpisCustom = adAccountConfig.kpis.customMetrics ?? [];
-    const graphsCustom = adAccountConfig.graphs.customMetrics ?? [];
-    const campaignsCustom = adAccountConfig.campaigns.customMetrics ?? [];
+    const kpisCustomMetrics = adAccountConfig.kpis.customMetrics ?? [];
+    const graphsCustomMetrics = adAccountConfig.graphs.customMetrics ?? [];
+    const campaignsCustomMetrics = adAccountConfig.campaigns.customMetrics ?? [];
+    const adsCustomMetrics = adAccountConfig.ads.customMetrics ?? [];
+
+    const extendedCustomFormulas = await this.getExtendedCustomFormulas(adAccountConfig);
+
+    // object contains metrics that are needed for calculations of the formulas but won't be displayed in the report
+    const metricsIncludedInCustomFormulas = await this.getMetricsIncludedInCustomFormulas(adAccountConfig, clientUuid, extendedCustomFormulas);
 
     const result: Partial<{
       kpis: Metric[];
@@ -66,26 +264,36 @@ export class FacebookDataUtil {
     }> = {};
 
     const fieldsAggregate: string[] = [
-      ...(selectedKpis.length
-        ? this.resolveMetricsFromMap(selectedKpis, AVAILABLE_KPI_METRICS)
-        : []),
-      ...(selectedCampaigns.length
+      ...(kpisDefaultMetrics.length || metricsIncludedInCustomFormulas.kpiDefaultMetrics.length
         ? this.resolveMetricsFromMap(
-            [...selectedCampaigns, "campaign_name"],
+          [...kpisDefaultMetrics, ...metricsIncludedInCustomFormulas.kpiDefaultMetrics], 
+          AVAILABLE_KPI_METRICS
+        )
+        : []),
+      ...(campaignsDefaultMetrics.length || metricsIncludedInCustomFormulas.campaignsDefaultMetrics.length
+        ? this.resolveMetricsFromMap(
+            [...campaignsDefaultMetrics, ...metricsIncludedInCustomFormulas.campaignsDefaultMetrics, "campaign_name"],
             AVAILABLE_CAMPAIGN_METRICS,
           )
-        : []),
+        : [])
     ];
-    if (selectedKpis.length && kpisCustom.length) {
+    if (
+      metricsIncludedInCustomFormulas.kpiCustomMetrics.length
+      || metricsIncludedInCustomFormulas.campaignsCustomMetrics.length
+    ) {
       fieldsAggregate.push("actions", "action_values");
     }
-    if (selectedCampaigns.length && campaignsCustom.length) {
+    if (kpisDefaultMetrics.length && kpisCustomMetrics.length) {
+      fieldsAggregate.push("actions", "action_values");
+    }
+    if (campaignsDefaultMetrics.length && campaignsCustomMetrics.length) {
       if (!fieldsAggregate.includes("actions")) fieldsAggregate.push("actions");
       if (!fieldsAggregate.includes("action_values"))
         fieldsAggregate.push("action_values");
     }
 
     if (fieldsAggregate.length) {
+      
       const insightsAggregate = await api.getInsightsSmart(
         "campaign",
         [...new Set(fieldsAggregate)],
@@ -95,32 +303,37 @@ export class FacebookDataUtil {
         },
       );
 
-      if (selectedKpis.length) {
+      if (kpisDefaultMetrics.length || kpisCustomMetrics.length || adAccountConfig.kpis.customFormulas?.length) {
         result.kpis =
           this.aggregateCampaignDataToKPIs(
             insightsAggregate,
-            selectedKpis,
-            kpisCustom,
+            kpisDefaultMetrics,
+            kpisCustomMetrics,
+            extendedCustomFormulas.kpisExtendedCustomFormulas,
+            metricsIncludedInCustomFormulas.kpiCustomMetrics,
           ) ?? [];
       }
-      if (selectedCampaigns.length) {
+      if (campaignsDefaultMetrics.length || campaignsCustomMetrics.length || adAccountConfig.campaigns.customFormulas?.length) {
         result.campaigns = this.normalizeCampaigns(
           insightsAggregate,
-          selectedCampaigns,
-          campaignsCustom,
+          campaignsDefaultMetrics,
+          campaignsCustomMetrics,
+          extendedCustomFormulas.campaignsExtendedCustomFormulas,
+          metricsIncludedInCustomFormulas.campaignsCustomMetrics
         );
       }
     }
 
-    if (selectedGraphs.length) {
+    if (graphsDefaultMetrics.length || graphsCustomMetrics.length || adAccountConfig.graphs.customFormulas?.length) {
       const { since, until, days } = this.resolveRangeFromPreset(datePreset);
       const targetBuckets = Math.min(7, days); // or whatever max you want
       const timeIncrement = Math.ceil(days / targetBuckets);
+
       const fieldsTimeSeries: string[] = this.resolveMetricsFromMap(
-        selectedGraphs,
+        [...graphsDefaultMetrics, ...metricsIncludedInCustomFormulas.graphsDefaultMetrics],
         AVAILABLE_GRAPH_METRICS,
       );
-      if (graphsCustom.length)
+      if (graphsCustomMetrics.length || metricsIncludedInCustomFormulas.graphsCustomMetrics.length)
         fieldsTimeSeries.push("actions", "action_values");
 
       let insightsTimeSeries: any[] = [];
@@ -143,19 +356,21 @@ export class FacebookDataUtil {
 
       result.graphs = this.createCollapsedBuckets(
         insightsTimeSeries,
-        selectedGraphs,
-        graphsCustom,
+        graphsDefaultMetrics,
+        graphsCustomMetrics,
+        extendedCustomFormulas.graphsExtendedCustomFormulas,
+        metricsIncludedInCustomFormulas.graphsCustomMetrics,
         datePreset,
         targetBuckets,
       );
     }
 
-    if (selectedAds.length) {
+    if (adsDefaultMetrics.length || adsCustomMetrics.length || adAccountConfig.ads.customFormulas?.length) {
+
       const resolvedAds = this.resolveMetricsFromMap(
-        selectedAds,
+        [...adsDefaultMetrics, ...metricsIncludedInCustomFormulas.adsDefaultMetrics],
         AVAILABLE_ADS_METRICS,
       );
-      const adsCustom = adAccountConfig.ads.customMetrics ?? [];
 
       const adsInsights = await api.getAdInsightsWithThumbnails(
         [...resolvedAds, ...["actions", "action_values"]], // Andrii added this shit "...["actions", "action_values"]", because previously custom metrics didn't get fetched for creatives at all. Change it if needed.
@@ -163,11 +378,14 @@ export class FacebookDataUtil {
       );
       result.ads = await this.processAds(
         adsInsights,
-        selectedAds,
+        adsDefaultMetrics,
         organizationUuid,
         adAccountId,
         adAccountConfig.ads.adsSettings,
-        adsCustom,
+        adsCustomMetrics,
+        extendedCustomFormulas.adsExtendedCustomFormulas,
+        metricsIncludedInCustomFormulas.adsDefaultMetrics,
+        metricsIncludedInCustomFormulas.adsCustomMetrics
       );
     }
 
@@ -279,6 +497,8 @@ export class FacebookDataUtil {
     insights: any[],
     selectedGraphs: string[],
     customMetrics: CustomMetric[],
+    customFormulas: ExtendedCustomFormula[],
+    customMetricsUsedInFormulas: CustomMetric[] = [],
     _datePreset: string,
     _targetBuckets: number, // unused, because API does the bucketing
   ): ReportDataGraph[] {
@@ -289,7 +509,13 @@ export class FacebookDataUtil {
     return insights.map((row) => ({
       date_start: toYMD(new Date(row.date_start)),
       date_stop: toYMD(new Date(row.date_stop)),
-      data: this.extractMetricsFromInsight(row, selectedGraphs, customMetrics),
+      data: this.extractMetricsFromInsight(
+        row, 
+        selectedGraphs, 
+        customMetrics, 
+        customFormulas, 
+        customMetricsUsedInFormulas
+      ),
     }));
   }
 
@@ -307,8 +533,10 @@ export class FacebookDataUtil {
 
   private static aggregateCampaignDataToKPIs(
     campaignData: any[],
-    selectedMetrics: string[],
+    selectedDefaultMetrics: string[],
     selectedCustomMetrics: CustomMetric[] = [],
+    selectedCustomFormulas: ExtendedCustomFormula[] = [],
+    customMetricsUsedInFormulas: CustomMetric[] = []
   ): { name: string; value: any; order: number }[] | null {
     if (!campaignData || campaignData.length === 0) return null;
 
@@ -328,7 +556,7 @@ export class FacebookDataUtil {
 
     const customMetricMap: Record<string, number> = {};
     const selectedCustomMap = new Map(
-      selectedCustomMetrics.map((m) => [m.id, m.name]),
+      [...selectedCustomMetrics, ...customMetricsUsedInFormulas].map((m) => [m.id, m.name]),
     );
 
     for (const campaign of campaignData) {
@@ -382,7 +610,7 @@ export class FacebookDataUtil {
       );
     }
 
-    const metrics: Record<string, any> = {
+    let metrics: Record<string, any> = {
       ...aggregated,
       cpc: aggregated.clicks > 0 ? aggregated.spend / aggregated.clicks : 0,
       ctr:
@@ -420,6 +648,12 @@ export class FacebookDataUtil {
       }
     }
 
+    metrics = this.handleCustomFormulas(
+      metrics, 
+      selectedCustomFormulas,
+      customMetricsUsedInFormulas
+    );
+
     // TODO: CUSTOM VETSOCIAL CODE
     const quotesCm = selectedCustomMetrics.find((cm) =>
       cm.name.toLowerCase().includes("quote") || cm.name.toLowerCase().includes("anvraag"),
@@ -431,23 +665,33 @@ export class FacebookDataUtil {
     }
 
     const normalize = (s: string) => s.trim().toLowerCase();
+
     const allowedKeys = new Set([
-      ...selectedMetrics.map(normalize),
+      ...selectedDefaultMetrics.map(normalize),
       ...selectedCustomMetrics.map((m) => normalize(m.name)),
+      ...selectedCustomFormulas.map((f) => normalize(f.name)),
     ]);
+
     if (quotesCm) {
       allowedKeys.add("cost_per_quote");
     }
+
+    // filling orders of metrics
     const metricOrderMap = new Map<string, number>();
-    selectedMetrics.forEach((name, index) => {
+    selectedDefaultMetrics.forEach((name, index) => {
       metricOrderMap.set(name.trim().toLowerCase(), index);
     });
     selectedCustomMetrics.forEach((cm) => {
       metricOrderMap.set(cm.name.trim().toLowerCase(), cm.order);
     });
+    selectedCustomFormulas.forEach((f) => {
+      metricOrderMap.set(f.name.trim().toLowerCase(), f.order);
+    });
+
     if (quotesCm) {
       metricOrderMap.set("cost_per_quote", 50);
     }
+
     return Object.entries(metrics)
       .filter(([key]) => allowedKeys.has(normalize(key)))
       .map(([name, value]) => ({
@@ -458,19 +702,48 @@ export class FacebookDataUtil {
       .sort((a, b) => a.order - b.order);
   }
 
+  private static handleCustomFormulas(
+    metrics: Record<string, any>, 
+    customFormulas: ExtendedCustomFormula[],
+    customMetricsUsedInFormulas: CustomMetric[] = []
+  ): Record<string, any> {
+    const getVariables = (formula: string) => {
+      const node = parse(formula);
+      return [...new Set(
+        node.filter(n => (n as SymbolNode).isSymbolNode).map(n => (n as SymbolNode).name)
+      )];
+    }
+    for (let customFormula of customFormulas) {
+      const variables = getVariables(customFormula.formula);
+      const values = new Object();
+      for (let variable of variables) {
+        if (variable.startsWith("custom_metric_")) {
+          const customMetricId = variable.split("custom_metric_")[1];
+          const readableVariable = customMetricsUsedInFormulas.find(cm => cm.id === customMetricId)!.name;
+          Object.assign(values, { [variable]: Number(metrics[readableVariable] ?? 0) });
+          continue
+        }
+        Object.assign(values, { [variable]: Number(metrics[variable] ?? 0) });
+      }
+      const result = evaluate(customFormula.formula, values);
+      metrics[customFormula.name] = result;
+    }
+    return metrics;
+  }
+
   private static extractMetricsFromInsight(
     insight: any,
     selectedMetrics: string[],
     customMetrics: CustomMetric[] = [],
+    customFormulas: ExtendedCustomFormula[] = [],
+    customMetricsUsedInFormulas: CustomMetric[] = []
   ): Metric[] {
     if (!insight) return [];
 
     const customMetricIdToName = new Map<string, string>();
-    const customMetricOrderMap = new Map<string, number>();
 
-    customMetrics.forEach((cm) => {
+    [...customMetrics, ...customMetricsUsedInFormulas].forEach((cm) => {
       customMetricIdToName.set(cm.id, cm.name);
-      customMetricOrderMap.set(cm.name, cm.order);
     });
 
     const spend = Number(insight.spend || 0);
@@ -500,7 +773,7 @@ export class FacebookDataUtil {
       insight.actions,
       "landing_page_view",
     );
-    const metricsMap: Record<string, any> = {
+    let metricsMap: Record<string, any> = {
       spend,
       impressions,
       clicks,
@@ -545,6 +818,12 @@ export class FacebookDataUtil {
       }
     }
 
+    metricsMap = this.handleCustomFormulas( // calculates formulas and adds them to metrics map
+      metricsMap, 
+      customFormulas,
+      customMetricsUsedInFormulas
+    );
+
     // TODO: CUSTOM VETSOCIAL CODE
     const quotesCm = customMetrics.find((cm) =>
       cm.name.toLowerCase().includes("quote") || cm.name.toLowerCase().includes("anvraag"),
@@ -559,17 +838,22 @@ export class FacebookDataUtil {
     const allowedMetrics = new Set<string>([
       ...selectedMetrics.map(normalizeKey),
       ...customMetrics.map((cm) => normalizeKey(cm.name)),
+      ...customFormulas.map((cf) => normalizeKey(cf.name)),
     ]);
     if (quotesCm) {
       allowedMetrics.add("cost_per_quote");
     }
 
+    // applying order
     const metricOrderMap = new Map<string, number>();
     selectedMetrics.forEach((name, index) => {
       metricOrderMap.set(normalizeKey(name), index);
     });
     customMetrics.forEach((cm) => {
       metricOrderMap.set(normalizeKey(cm.name), cm.order);
+    });
+    customFormulas.forEach((cf) => {
+      metricOrderMap.set(normalizeKey(cf.name), cf.order);
     });
     if (quotesCm) {
       metricOrderMap.set("cost_per_quote", 50);
@@ -589,6 +873,8 @@ export class FacebookDataUtil {
     insights: any[],
     selectedCampaigns: string[],
     allCustomMetrics: CustomMetric[],
+    customFormulas: ExtendedCustomFormula[] = [],
+    customMetricsUsedInFormulas: CustomMetric[] = []
   ): ReportDataCampaign[] {
     
     // TODO: CUSTOM VETSOCIAL SORTING
@@ -601,6 +887,8 @@ export class FacebookDataUtil {
         campaign,
         selectedCampaigns.filter((m) => m !== "campaign_name"),
         allCustomMetrics,
+        customFormulas,
+        customMetricsUsedInFormulas
       ),
     }))
 
@@ -662,6 +950,9 @@ export class FacebookDataUtil {
     adAccountId: string,
     adsSettings?: { numberOfAds: number; sortAdsBy: string },
     customMetrics: CustomMetric[] = [],
+    customFormulas: ExtendedCustomFormula[] = [],
+    defaultMetricsUsedInFormulas: string[] = [],
+    customMetricsUsedInFormulas: CustomMetric[] = []
   ): Promise<ReportDataAd[]> {
     const api = await FacebookApi.create(organizationUuid, adAccountId);
 
@@ -696,7 +987,13 @@ export class FacebookDataUtil {
       thumbnailUrl: row.creative?.thumbnail_url || "",
       sourceUrl: row.creative?.instagram_permalink_url || "",
       ad_name: row.ad_name || "",
-      data: this.extractMetricsFromInsight(row, selectedAds, customMetrics),
+      data: this.extractMetricsFromInsight(
+        row, 
+        selectedAds, 
+        customMetrics, 
+        customFormulas,
+        customMetricsUsedInFormulas
+      ),
     }));
 
     const shownAds = this.getBestAdsByROAS(

@@ -66,6 +66,12 @@ export class FacebookProvider implements AdsProvider {
         existing.campaigns.customMetrics?.push(
           ...(config.campaigns.customMetrics || []),
         );
+
+        existing.kpis.customFormulas?.push(...(config.kpis.customFormulas || []));
+        existing.graphs.customFormulas?.push(...(config.graphs.customFormulas || []));
+        existing.ads.customFormulas?.push(...(config.ads.customFormulas || []));
+        existing.campaigns.customFormulas?.push(...(config.campaigns.customFormulas || []));
+        
       }
     }
 
@@ -91,6 +97,7 @@ export class FacebookProvider implements AdsProvider {
             config.adAccountId,
             datePreset,
             config,
+            clientUuid
           );
 
           dataMap.set(config.adAccountId, {
@@ -302,6 +309,7 @@ export function convertSectionsToScheduledConfigs(
         order: account.order,
         metrics: account.metrics,
         customMetrics: account.customMetrics ?? undefined,
+        customFormulas: account.customFormulas ?? undefined,
         adsSettings: account.adsSettings ?? undefined,
       };
 
