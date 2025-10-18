@@ -14,6 +14,8 @@ import type {
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import type { CustomMetric } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces";
 
+type NumLike = number | string;
+
 export class FacebookDataUtil {
   private static resolveMetricsFromMap(
     selected: string[],
@@ -29,6 +31,22 @@ export class FacebookDataUtil {
   private static getActionMonetaryValue(values: any[], type: string): number {
     return Number(values?.find((a) => a.action_type === type)?.value || 0);
   }
+
+  private static toNum = (v: unknown): number => {
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+    if (typeof v === "string") {
+      return Number(v.replace?.("%", "") ?? v);
+    }
+    return 0;
+  };
+
+  private static lc = (s: string) => s.toLowerCase();
+
+  private static findMetricValue = (
+    data: { name: string; value: NumLike }[],
+    name: string,
+  ): number =>
+    this.toNum(data.find((d) => this.lc(d.name) === this.lc(name))?.value);
 
   public static async getAdAccountReportData(
     organizationUuid: string,
@@ -159,7 +177,7 @@ export class FacebookDataUtil {
       const adsCustom = adAccountConfig.ads.customMetrics ?? [];
 
       const adsInsights = await api.getAdInsightsWithThumbnails(
-        [...resolvedAds, ...["actions", "action_values"]], // Andrii added this shit "...["actions", "action_values"]", because previously custom metrics didn't get fetched for creatives at all. Change it if needed.
+        [...resolvedAds, ...["actions", "action_values"]], // Andrii added this shit ...["actions", "action_values"]", because previously custom metrics didn't get fetched for creatives at all. Change it if needed.
         datePreset,
       );
       result.ads = await this.processAds(
@@ -554,6 +572,7 @@ export class FacebookDataUtil {
         cm.name.toLowerCase().includes("quote") ||
         cm.name.toLowerCase().includes("anvraag"),
     );
+
     if (quotesCm) {
       const qName = quotesCm.name;
       const qVal = Number(metricsMap[qName] ?? 0);
@@ -596,41 +615,36 @@ export class FacebookDataUtil {
     allCustomMetrics: CustomMetric[],
     settings?: { maxCampaigns?: number; sortBy?: string },
   ): ReportDataCampaign[] {
-    const want = settings?.sortBy?.toLowerCase().trim();
-    console.log(settings);
-    console.log(want);
-    const campaigns = insights.map((campaign, index) => ({
+    const want = settings?.sortBy?.trim();
+    const wantLc = want ? this.lc(want) : null;
+
+    const items = insights.map((row, index) => ({
       index,
-      campaign_name: campaign.campaign_name || `Campaign ${index + 1}`,
-      raw: campaign,
+      campaign_name: row.campaign_name || `Campaign ${index + 1}`,
       data: this.extractMetricsFromInsight(
-        campaign,
-        selectedCampaigns.filter((m) => m !== "campaign_name"),
+        row,
+        selectedCampaigns.filter((n) => this.lc(n) !== "campaign_name"),
         allCustomMetrics,
       ),
     }));
 
     const hasWanted =
-      !!want &&
-      campaigns.some((c) => c.data.some((d) => d.name.toLowerCase() === want));
-
-    const getNum = (c: (typeof campaigns)[number]): number => {
-      if (!want) return Number.NEGATIVE_INFINITY;
-      const v = c.data.find((d) => d.name.toLowerCase() === want)?.value;
-      const n = typeof v === "number" ? v : Number(v);
-      return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY;
-    };
+      !!wantLc &&
+      items.some((c) => c.data.some((d) => this.lc(d.name) === wantLc));
 
     const sorted = hasWanted
-      ? campaigns.slice().sort((a, b) => getNum(b) - getNum(a)) // desc
-      : campaigns;
+      ? items.slice().sort((a, b) => {
+          const av = this.findMetricValue(a.data, want!);
+          const bv = this.findMetricValue(b.data, want!);
+          return bv - av;
+        })
+      : items;
 
-    return sorted
-      .slice(0, settings?.maxCampaigns ?? 15)
-      .map(({ raw, ...rest }) => rest);
+    const limit = settings?.maxCampaigns ?? 15;
+    return sorted.slice(0, limit);
   }
 
-  private static getBestAdsByROAS(
+  private static getBestAds(
     ads: any[],
     metric: string = "impressions",
     limit: number = 10,
@@ -682,15 +696,15 @@ export class FacebookDataUtil {
   ): Promise<ReportDataAd[]> {
     const api = await FacebookApi.create(organizationUuid, adAccountId);
 
-    // STEP 1: Aggregate ads by ad_id
-    const aggregatedAds = this.aggregateAdsByAdName(adsInsights);
+    // aggregate by ad_name
+    const aggregated = this.aggregateAdsByAdName(adsInsights);
 
+    // collect creatives and media ids
     const creativeByAdId = new Map<string, any>();
     const igMediaIds = new Set<string>();
     const storyIdsByPage = new Map<string, string[]>();
 
-    // collect creatives & ids for media enrichment (use aggregated ads)
-    for (const r of aggregatedAds) {
+    for (const r of aggregated) {
       const cr = r.creative || {};
       const adId = r.ad_id || r.adId;
       creativeByAdId.set(adId, cr);
@@ -706,29 +720,32 @@ export class FacebookDataUtil {
       if (mediaId) igMediaIds.add(mediaId);
     }
 
-    // Use aggregated ads instead of raw insights
-    const reportAds: ReportDataAd[] = aggregatedAds.map((row) => ({
+    // build report rows
+    const reportAds: ReportDataAd[] = aggregated.map((row) => ({
       adId: row.ad_id || row.adId,
-      adCreativeId: (row.creative?.id as string) || "",
-      thumbnailUrl: row.creative?.thumbnail_url || "",
-      sourceUrl: row.creative?.instagram_permalink_url || "",
-      ad_name: row.ad_name || "",
+      adCreativeId: row.creative?.id ?? "",
+      thumbnailUrl: row.creative?.thumbnail_url ?? "",
+      sourceUrl: row.creative?.instagram_permalink_url ?? "",
+      ad_name: row.ad_name ?? "",
       data: this.extractMetricsFromInsight(row, selectedAds, customMetrics),
     }));
 
-    const shownAds = this.getBestAdsByROAS(
+    // sort + limit
+    const shownAds = this.getBestAds(
       reportAds,
       adsSettings?.sortBy,
-      adsSettings?.maxAds,
+      adsSettings?.maxAds ?? 10,
     );
 
+    // media enrichment
     const managedPages = await api.getManagedPages();
     const tokenByPage = new Map(
       managedPages.map((p) => [p.id, p.access_token]),
     );
-
-    const igById = new Map<string, any>();
     const firstPageToken = managedPages[0]?.access_token;
+
+    // instagram media
+    const igById = new Map<string, any>();
     if (igMediaIds.size && firstPageToken) {
       try {
         const ig = await api.getInstagramMediaBatchWithToken(
@@ -743,12 +760,13 @@ export class FacebookDataUtil {
             "children{media_type,media_url,thumbnail_url,permalink}",
           ],
         );
-        for (const m of ig || []) igById.set(m.id, m);
+        for (const m of ig ?? []) igById.set(m.id, m);
       } catch {}
     }
 
+    // fb posts
     const postById = new Map<string, any>();
-    for (const [pageId, storyIds] of storyIdsByPage.entries()) {
+    for (const [pageId, storyIds] of storyIdsByPage) {
       const token = tokenByPage.get(pageId);
       if (!token) continue;
       const unique = [...new Set(storyIds)];
@@ -759,13 +777,14 @@ export class FacebookDataUtil {
           "full_picture",
           "attachments{media_type,media,url,subattachments{media_type,media,url}}",
         ]);
-        for (const p of posts || []) postById.set(p.id, p);
+        for (const p of posts ?? []) postById.set(p.id, p);
       } catch {}
     }
 
+    // patch thumbnails and links
     for (const ra of shownAds) {
       const cr = creativeByAdId.get(ra.adId);
-
+      // IG
       if (cr?.effective_instagram_media_id) {
         const media = igById.get(cr.effective_instagram_media_id);
         if (media) {
@@ -789,28 +808,26 @@ export class FacebookDataUtil {
           continue;
         }
       }
-
+      // FB
       if (cr?.effective_object_story_id) {
         const post = postById.get(cr.effective_object_story_id);
         if (post) {
-          const pickFromAttachments = (att: any): string | null => {
-            if (!att) return null;
-            const first = att.data?.[0];
-            if (!first) return null;
+          const fromAttachments = (att: any): string | null => {
+            const first = att?.data?.[0];
             return (
-              first.media?.image?.src ||
-              first.media?.source ||
-              first.media?.src ||
-              first.url ||
-              first.subattachments?.data?.[0]?.media?.image?.src ||
-              first.subattachments?.data?.[0]?.media?.source ||
-              first.subattachments?.data?.[0]?.media?.src ||
-              first.subattachments?.data?.[0]?.url ||
+              first?.media?.image?.src ||
+              first?.media?.source ||
+              first?.media?.src ||
+              first?.url ||
+              first?.subattachments?.data?.[0]?.media?.image?.src ||
+              first?.subattachments?.data?.[0]?.media?.source ||
+              first?.subattachments?.data?.[0]?.media?.src ||
+              first?.subattachments?.data?.[0]?.url ||
               null
             );
           };
           ra.thumbnailUrl =
-            pickFromAttachments(post.attachments) ||
+            fromAttachments(post.attachments) ||
             post.full_picture ||
             ra.thumbnailUrl;
           ra.sourceUrl = post.permalink_url || ra.sourceUrl;
@@ -821,74 +838,66 @@ export class FacebookDataUtil {
     return shownAds;
   }
 
-  // NEW METHOD: Aggregate ads by ad_id
   private static aggregateAdsByAdName(adsInsights: any[]): any[] {
-    const nameMap = new Map<string, any>();
-
-    const isNumericLike = (v: any) =>
+    const map = new Map<string, any>();
+    const numericLike = (v: any) =>
       typeof v === "number" ||
       (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v)));
 
     for (const row of adsInsights) {
-      const adName = row.ad_name || "Unnamed Ad";
-      if (!nameMap.has(adName)) {
-        nameMap.set(adName, { ...row });
+      const key = row.ad_name || "Unnamed Ad";
+      const acc = map.get(key) ?? { ...row };
+      if (!map.has(key)) {
+        map.set(key, acc);
         continue;
       }
 
-      const existing = nameMap.get(adName)!;
-
-      // sum numeric & numeric-like string fields
-      for (const [key, value] of Object.entries(row)) {
-        if (key === "ad_id" || key === "adId" || key === "ad_name") continue;
-        if (isNumericLike(value)) {
-          const prev = Number(existing[key] ?? 0);
-          existing[key] = prev + Number(value);
-        }
+      // sum numeric fields
+      for (const [k, v] of Object.entries(row)) {
+        if (
+          k === "ad_id" ||
+          k === "adId" ||
+          k === "ad_name" ||
+          k === "creative"
+        )
+          continue;
+        if (numericLike(v)) acc[k] = this.toNum(acc[k]) + this.toNum(v);
       }
 
       // merge actions
       if (Array.isArray(row.actions)) {
-        if (!existing.actions) existing.actions = [];
-        const actionMap = new Map<string, number>();
-        for (const a of existing.actions)
-          actionMap.set(a.action_type, Number(a.value ?? 0));
-        for (const a of row.actions) {
-          const t = a.action_type;
-          actionMap.set(t, (actionMap.get(t) ?? 0) + Number(a.value ?? 0));
-        }
-        existing.actions = [...actionMap.entries()].map(
-          ([action_type, value]) => ({
-            action_type,
-            value: String(value),
-          }),
-        );
+        const m = new Map<string, number>();
+        for (const a of acc.actions ?? [])
+          m.set(a.action_type, this.toNum(a.value));
+        for (const a of row.actions)
+          m.set(
+            a.action_type,
+            (m.get(a.action_type) ?? 0) + this.toNum(a.value),
+          );
+        acc.actions = [...m].map(([action_type, value]) => ({
+          action_type,
+          value: String(value),
+        }));
       }
 
       // merge action_values
       if (Array.isArray(row.action_values)) {
-        if (!existing.action_values) existing.action_values = [];
-        const valMap = new Map<string, number>();
-        for (const av of existing.action_values)
-          valMap.set(av.action_type, Number(av.value ?? 0));
-        for (const av of row.action_values) {
-          const t = av.action_type;
-          valMap.set(t, (valMap.get(t) ?? 0) + Number(av.value ?? 0));
-        }
-        existing.action_values = [...valMap.entries()].map(
-          ([action_type, value]) => ({
-            action_type,
-            value: String(value),
-          }),
-        );
+        const m = new Map<string, number>();
+        for (const a of acc.action_values ?? [])
+          m.set(a.action_type, this.toNum(a.value));
+        for (const a of row.action_values)
+          m.set(
+            a.action_type,
+            (m.get(a.action_type) ?? 0) + this.toNum(a.value),
+          );
+        acc.action_values = [...m].map(([action_type, value]) => ({
+          action_type,
+          value: String(value),
+        }));
       }
     }
 
-    const result = [...nameMap.values()];
-    console.log(
-      `Aggregated ${adsInsights.length} ad rows into ${result.length} unique ad_names`,
-    );
-    return result;
+    return [...map.values()];
   }
 
   private static extractPageIdFromStoryId(storyId?: string): string | null {
