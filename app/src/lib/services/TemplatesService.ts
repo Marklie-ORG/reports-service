@@ -2,20 +2,14 @@ import {
   Database,
   FACEBOOK_DATE_PRESETS,
   OrganizationClient,
+  type ProviderConfig,
   SchedulingOption,
   SchedulingTemplate,
 } from "marklie-ts-core";
-import type {
-  ReportScheduleRequest,
-  ScheduledProviderConfig,
-} from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces";
+import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces";
 import { ReportQueueService } from "./ReportsQueueService";
 import { ReportsUtil } from "../utils/ReportsUtil.js";
 import { CronUtil } from "../utils/CronUtil.js";
-import type {
-  ReportData,
-  ReportJobData,
-} from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { Temporal } from "@js-temporal/polyfill";
 
 const database = await Database.getInstance();
@@ -31,7 +25,7 @@ export class SchedulingTemplateService {
       reportName: string;
       timezone: string;
       datePreset: FACEBOOK_DATE_PRESETS;
-      providers: ScheduledProviderConfig[];
+      providers: ProviderConfig[];
       reviewRequired: boolean;
       time: string;
       dayOfWeek: string;
@@ -132,7 +126,7 @@ export class SchedulingTemplateService {
     option.isActive = true;
     option.providers = req.providers ?? [];
 
-    option.review = { required: !!req.reviewRequired };
+    option.review = { required: req.reviewRequired };
 
     option.schedule = {
       timezone: req.timeZone,
@@ -181,7 +175,7 @@ export class SchedulingTemplateService {
 
     // Enqueue recurring job; use schedule uuid as deterministic job id
     const job = await this.queue.scheduleReport(
-      this.buildJobPayload(req, client, option.uuid),
+      { scheduleUuid: option.uuid },
       option.schedule.cronExpression,
       option.uuid,
       option.schedule.timezone,
@@ -192,19 +186,5 @@ export class SchedulingTemplateService {
     await em.persistAndFlush(option);
 
     return option;
-  }
-
-  private buildJobPayload(
-    req: ReportScheduleRequest,
-    client: OrganizationClient,
-    scheduleUuid: string,
-  ): ReportJobData {
-    const { providers, ...rest } = req;
-    return {
-      ...rest,
-      data: (providers as unknown as ReportData[]) ?? [],
-      scheduleUuid,
-      organizationUuid: client.organization.uuid,
-    };
   }
 }

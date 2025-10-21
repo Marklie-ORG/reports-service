@@ -1,4 +1,4 @@
-import type { SectionConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces";
+import type { SectionConfig } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces";
 
 export interface AdsProvider {
   readonly providerName: string;
@@ -6,7 +6,6 @@ export interface AdsProvider {
   getProviderData(
     sections: SectionConfig[],
     clientUuid: string,
-    organizationUuid: string,
     datePreset: string,
   ): Promise<any[]>;
 

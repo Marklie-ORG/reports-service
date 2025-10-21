@@ -1,5 +1,6 @@
 import { ReportsUtil } from "../utils/ReportsUtil.js";
 import {
+  AdAccountCustomFormula,
   Database,
   GCSWrapper,
   Log,
@@ -8,24 +9,15 @@ import {
   SchedulingOption,
 } from "marklie-ts-core";
 import { ReportQueueService } from "./ReportsQueueService.js";
-import type {
-  ReportData,
-  ReportJobData,
-} from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { Temporal } from "@js-temporal/polyfill";
 import { CronUtil } from "../utils/CronUtil.js";
 import { FacebookApi } from "../apis/FacebookApi.js";
 import type {
   ISchedulingOption,
+  ReportScheduleRequest,
   SchedulingOptionWithExtras,
-} from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js"; // <- new DTOs you added
-import {
-  AVAILABLE_ADS_METRICS,
-  AVAILABLE_CAMPAIGN_METRICS,
-  AVAILABLE_GRAPH_METRICS,
-  AVAILABLE_KPI_METRICS,
-  type ReportScheduleRequest,
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
+import { FACEBOOK_BASE_METRICS } from "../providers/facebook/FacebookMetricProcessor.js";
 
 const database = await Database.getInstance();
 const logger = Log.getInstance().extend("schedules-service");
@@ -50,14 +42,8 @@ export class SchedulesService {
       this.assignScheduleFields(schedule, scheduleOption, client);
 
       const cronExpression = schedule.schedule.cronExpression;
-      const jobPayload = this.buildJobPayload(
-        scheduleOption,
-        client,
-        schedule.uuid,
-      );
-
       const job = await ReportQueueService.getInstance().scheduleReport(
-        jobPayload,
+        { scheduleUuid: schedule.uuid },
         cronExpression,
         schedule.uuid, // deterministic job id
         schedule.schedule.timezone,
@@ -101,13 +87,8 @@ export class SchedulesService {
 
       this.assignScheduleFields(schedule, scheduleOption, schedule.client);
 
-      const jobPayload = this.buildJobPayload(
-        scheduleOption,
-        schedule.client,
-        schedule.uuid,
-      );
       const job = await queue.scheduleReport(
-        jobPayload,
+        { scheduleUuid: schedule.uuid },
         schedule.schedule.cronExpression,
         schedule.uuid,
         schedule.schedule.timezone,
@@ -311,14 +292,8 @@ export class SchedulesService {
 
       opt.isActive = true;
 
-      const jobPayload = this.buildJobPayload(
-        this.requestFromOption(opt),
-        opt.client,
-        opt.uuid,
-      );
-
       const newJob = await reportQueue.scheduleReport(
-        jobPayload,
+        { scheduleUuid: opt.uuid },
         opt.schedule.cronExpression,
         opt.uuid,
         opt.schedule.timezone,
@@ -400,52 +375,6 @@ export class SchedulesService {
     schedule.schedule.nextRun = new Date(zoned.epochMilliseconds);
   }
 
-  private buildJobPayload(
-    option: ReportScheduleRequest,
-    client: OrganizationClient,
-    scheduleUuid: string,
-  ): ReportJobData {
-    const { providers, ...rest } = option;
-    return {
-      ...rest,
-      data: (providers as unknown as ReportData[]) ?? [],
-      scheduleUuid,
-      organizationUuid: client.organization.uuid,
-    };
-  }
-
-  private requestFromOption(opt: SchedulingOption): ReportScheduleRequest {
-    return {
-      clientUuid: opt.client.uuid,
-      frequency: "cron",
-      cronExpression: opt.schedule.cronExpression,
-      timeZone: opt.schedule.timezone,
-      time: "00:00", // not stored on opt; irrelevant for cron schedules
-      datePreset: opt.schedule.datePreset,
-      reportName: opt.customization?.title ?? "",
-      reviewRequired: !!opt.review?.required,
-      providers: opt.providers ?? [],
-      colors: {
-        headerBackgroundColor: opt.customization?.colors?.headerBg ?? "",
-        reportBackgroundColor: opt.customization?.colors?.reportBg ?? "",
-      },
-      images: {
-        clientLogo: opt.customization?.logos?.client?.gcsUri ?? "",
-        organizationLogo: opt.customization?.logos?.org?.gcsUri ?? "",
-      },
-      messages: {
-        slack: opt.messaging?.slack ?? "",
-        whatsapp: opt.messaging?.whatsapp ?? "",
-        email: opt.messaging?.email
-          ? {
-              title: opt.messaging.email.title ?? "",
-              body: opt.messaging.email.body ?? "",
-            }
-          : { title: "", body: "" },
-      },
-    } as ReportScheduleRequest;
-  }
-
   private prettyFrequency(opt: SchedulingOption): string {
     const cron = opt.schedule.cronExpression.trim().toUpperCase();
     if (
@@ -467,44 +396,68 @@ export class SchedulesService {
     );
     if (!client) throw MarklieError.notFound("Client", clientUuid);
 
-    const api = await FacebookApi.create(client.organization.uuid);
+    const orgUuid = client.organization.uuid;
+    const adAccounts = client.adAccounts?.getItems() ?? [];
+    const adAccountIds = adAccounts.map((a) => a.adAccountId);
 
-    const adAccountIds = client
-      .adAccounts!.getItems()
-      .map((acc) => acc.adAccountId);
-    const customMetricsByAdAccount =
-      await api.getCustomConversionsForAdAccounts(adAccountIds);
+    // Build name lookup
+    const nameById = new Map(
+      adAccounts.map((a) => [a.adAccountId, a.adAccountName ?? ""]),
+    );
 
-    const result: {
-      adAccountId: string;
-      adAccountName: string;
-      adAccountMetrics: {
-        kpis: string[];
-        graphs: string[];
-        ads: string[];
-        campaigns: string[];
-        customMetrics: { id: string; name: string }[];
-      };
-    }[] = [];
+    // Fetch in parallel
+    const [customMetricsByAdAccount, formulas] = await Promise.all([
+      // returns Record<adAccountId, {id:string; name:string}[]>
+      FacebookApi.create(orgUuid).then((api) =>
+        api.getCustomConversionsForAdAccounts(adAccountIds),
+      ),
+      // if relation exists: adAccount -> ClientAdAccount
+      database.em.find(
+        AdAccountCustomFormula,
+        { adAccount: { adAccountId: { $in: adAccountIds } } },
+        { populate: ["adAccount"] },
+      ),
+      // If you store scalar FK instead, use:
+      // database.em.find(AdAccountCustomFormula, { adAccountId: { $in: adAccountIds } })
+    ]);
 
-    for (const adAccountId of adAccountIds) {
-      result.push({
-        adAccountId,
-        adAccountName:
-          client.adAccounts
-            ?.getItems()
-            .find((acc) => acc.adAccountId === adAccountId)?.adAccountName ??
-          "",
-        adAccountMetrics: {
-          kpis: Object.keys(AVAILABLE_KPI_METRICS),
-          graphs: Object.keys(AVAILABLE_GRAPH_METRICS),
-          ads: Object.keys(AVAILABLE_ADS_METRICS),
-          campaigns: Object.keys(AVAILABLE_CAMPAIGN_METRICS),
-          customMetrics: customMetricsByAdAccount[adAccountId] ?? [],
-        },
-      });
+    // Map formulas by adAccountId
+    const formulasByAd: Record<string, { uuid: string; name: string }[]> = {};
+    for (const f of formulas) {
+      const id =
+        "adAccount" in f ? f.adAccount.adAccountId : (f as any).adAccountId;
+      if (!id) continue;
+      if (!formulasByAd[id]) formulasByAd[id] = [];
+      formulasByAd[id].push({ uuid: f.uuid, name: f.name });
     }
 
-    return result;
+    // Base metrics same set for all sections
+    const base = Object.keys(FACEBOOK_BASE_METRICS);
+
+    // Build result
+    return adAccountIds.map((adAccountId) => ({
+      adAccountId,
+      adAccountName: nameById.get(adAccountId) ?? "",
+      adAccountMetrics: {
+        kpis: base,
+        graphs: base,
+        ads: base,
+        campaigns: base,
+        customMetrics: (customMetricsByAdAccount[adAccountId] ?? [])
+          .slice()
+          .sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, {
+              sensitivity: "base",
+              numeric: true,
+            }),
+          ),
+        customFormulas: (formulasByAd[adAccountId] ?? []).slice().sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, {
+            sensitivity: "base",
+            numeric: true,
+          }),
+        ),
+      },
+    }));
   }
 }

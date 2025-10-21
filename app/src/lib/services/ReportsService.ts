@@ -4,14 +4,14 @@ import {
   Database,
   GCSWrapper,
   Log,
+  type ProviderConfig,
   PubSubWrapper,
   Report,
-  type ReportImages,
 } from "marklie-ts-core";
 import { Temporal } from "@js-temporal/polyfill";
 import { ReportsConfigService } from "../config/config.js";
 import { ReportQueueService } from "./ReportsQueueService.js";
-import type { ScheduledProviderConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
+import type { ReportImages } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 const database = await Database.getInstance();
 const logger = Log.getInstance().extend("reports-service");
@@ -317,16 +317,13 @@ export class ReportsService {
     );
   }
 
-  public async updateReportData(
-    uuid: string,
-    providers: ScheduledProviderConfig[],
-  ) {
+  public async updateReportData(uuid: string, providers: ProviderConfig[]) {
     const report = await database.em.findOne(Report, { uuid });
     if (!report) throw new Error(`Report ${uuid} not found`);
 
     const reportData = (report.data as Record<string, any>[]) ?? [];
 
-    const providerConfigByName = new Map<string, ScheduledProviderConfig>();
+    const providerConfigByName = new Map<string, ProviderConfig>();
     for (const provider of providers)
       providerConfigByName.set(provider.provider, provider);
 

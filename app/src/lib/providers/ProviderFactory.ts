@@ -1,5 +1,5 @@
 import type { AdsProvider } from "./AdsProvider.js";
-import { FacebookProvider } from "./FacebookProvider.js";
+import { FacebookProvider } from "./facebook/FacebookProvider.js";
 
 export class ProviderFactory {
   private static providers = new Map<

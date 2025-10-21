@@ -18,6 +18,8 @@ export class FacebookApi {
   static readonly POLL_INTERVAL_MS = 8000;
   static readonly BATCH_SIZE = 50;
   static readonly MAX_RETRIES = 3;
+  private accountId: string = "";
+  private organizationUuid: string = "";
 
   private circuitBreaker: CircuitBreaker;
   private api: AxiosInstance;
@@ -26,16 +28,14 @@ export class FacebookApi {
     Array<{ id: string; name: string; access_token: string }>
   >;
 
-  private constructor(
-    token: string,
-    private accountId: string,
-  ) {
+  private constructor(token: string, orgUuid: string, accountId?: string) {
+    this.organizationUuid = orgUuid;
+    this.accountId = accountId ?? "";
     this.api = axios.create({
       baseURL: config.getFacebookApiUrl(),
       params: { access_token: token },
       timeout: 30000,
     });
-
     this.circuitBreaker = CircuitBreakerManager.getInstance().getOrCreate(
       "FacebookAPI",
       {
@@ -44,8 +44,16 @@ export class FacebookApi {
         expectedErrorCodes: ["VALIDATION_ERROR"],
       },
     );
-
     this.setupInterceptors();
+  }
+
+  public getOrganizationUuid(): string {
+    return this.organizationUuid;
+  }
+
+  public setAccountId(accountId: string) {
+    // instance setter if you need it
+    this.accountId = accountId;
   }
 
   static async create(
@@ -59,7 +67,7 @@ export class FacebookApi {
       throw new Error(
         `No token found for organizationUuid ${organizationUuid}`,
       );
-    return new FacebookApi(tokenRecord.token, accountId ?? "");
+    return new FacebookApi(tokenRecord.token, organizationUuid, accountId);
   }
 
   private setupInterceptors() {
@@ -571,77 +579,196 @@ export class FacebookApi {
   private async enrichInsightsWithCreativeData(
     insights: any[],
   ): Promise<any[]> {
-    const adIds = insights
-      .map((insight) => insight.ad_id)
-      .filter((id): id is string => !!id);
+    if (!Array.isArray(insights) || insights.length === 0) return insights;
 
-    if (adIds.length === 0) return insights;
+    // 1) fetch ads -> creatives
+    const adIds = insights.map((i) => i.ad_id).filter(Boolean);
+    if (!adIds.length) return insights;
 
-    try {
-      const adFields = [
-        "id",
-        "name",
-        "creative{id,thumbnail_url,instagram_permalink_url,effective_instagram_media_id,effective_object_story_id}",
-      ];
+    const adFields = [
+      "id",
+      "name",
+      "creative{id,thumbnail_url,instagram_permalink_url,effective_instagram_media_id,effective_object_story_id}",
+    ];
+    const ads = await this.getEntitiesBatch(adIds, adFields);
 
-      const ads = await this.getEntitiesBatch(adIds, adFields);
+    // 2) collect IG media ids and FB story ids per page for later enrichment
+    const creativeByAdId = new Map<string, any>();
+    const igMediaIds = new Set<string>();
+    const storyIdsByPage = new Map<string, string[]>();
 
-      return insights.map((insight) => {
-        const ad = ads.find((a) => a.id === insight.ad_id);
-        const cr = ad?.creative || {};
+    for (const ad of ads) {
+      const cr = ad?.creative || {};
+      creativeByAdId.set(ad.id, cr);
 
-        const getActionValue = (type: string) =>
-          insight.actions?.find((a: any) => a.action_type === type)?.value ?? 0;
+      const mediaId: string | undefined = cr.effective_instagram_media_id;
+      if (mediaId) igMediaIds.add(mediaId);
 
-        const customConversions: Record<string, number> = {};
-        const customConversionValues: Record<string, number> = {};
-
-        if (Array.isArray(insight.actions)) {
-          for (const a of insight.actions) {
-            const t = a?.action_type ?? "";
-            const m = /^offsite_conversion\.custom\.(\d+)$/.exec(t);
-            if (m) {
-              const id = m[1];
-              const num = Number(a.value ?? 0);
-              customConversions[id] = (customConversions[id] ?? 0) + num;
-            }
-          }
-        }
-        if (Array.isArray(insight.action_values)) {
-          for (const av of insight.action_values) {
-            const t = av?.action_type ?? "";
-            const m = /^offsite_conversion\.custom\.(\d+)$/.exec(t);
-            if (m) {
-              const id = m[1];
-              const num = Number(av.value ?? 0);
-              customConversionValues[id] =
-                (customConversionValues[id] ?? 0) + num;
-            }
-          }
-        }
-
-        return {
-          ...insight,
-          purchases: getActionValue("purchase"),
-          addToCart: getActionValue("add_to_cart"),
-          roas: insight.purchase_roas?.[0]?.value ?? 0,
-          ad_name: insight?.ad_name ?? null,
-          creative: {
-            id: cr?.id ?? null,
-            thumbnail_url: cr?.thumbnail_url ?? null,
-            instagram_permalink_url: cr?.instagram_permalink_url ?? null,
-            effective_instagram_media_id:
-              cr?.effective_instagram_media_id ?? null,
-            effective_object_story_id: cr?.effective_object_story_id ?? null,
-          },
-          customConversions,
-          customConversionValues,
-        };
-      });
-    } catch (error) {
-      logger.error("Error enriching insights with creative data:", error);
-      return insights;
+      const storyId: string | undefined = cr.effective_object_story_id;
+      const pageId = this.extractPageIdFromStoryId(storyId);
+      if (pageId && storyId) {
+        if (!storyIdsByPage.has(pageId)) storyIdsByPage.set(pageId, []);
+        storyIdsByPage.get(pageId)!.push(storyId);
+      }
     }
+
+    // 3) load page tokens
+    const managedPages = await this.getManagedPages();
+    const tokenByPage = new Map(
+      managedPages.map((p: any) => [p.id, p.access_token]),
+    );
+    const firstPageToken = managedPages[0]?.access_token;
+
+    // 4) fetch IG media for large assets
+    const igById = new Map<string, any>();
+    if (igMediaIds.size && firstPageToken) {
+      try {
+        const ig = await this.getInstagramMediaBatchWithToken(
+          firstPageToken,
+          [...igMediaIds],
+          [
+            "id",
+            "media_type",
+            "media_url",
+            "thumbnail_url",
+            "permalink",
+            "children{media_type,media_url,thumbnail_url,permalink}",
+          ],
+        );
+        for (const m of ig ?? []) igById.set(m.id, m);
+      } catch {}
+    }
+
+    // 5) fetch FB posts for story ids
+    const postById = new Map<string, any>();
+    for (const [pageId, storyIds] of storyIdsByPage) {
+      const token = tokenByPage.get(pageId);
+      if (!token) continue;
+      const unique = [...new Set(storyIds)];
+      try {
+        const posts = await this.getEntitiesBatchWithToken(token, unique, [
+          "id",
+          "permalink_url",
+          "full_picture",
+          "attachments{media_type,media,url,subattachments{media_type,media,url}}",
+        ]);
+        for (const p of posts ?? []) postById.set(p.id, p);
+      } catch {}
+    }
+
+    const getActionValue = (ins: any, type: string) =>
+      ins.actions?.find((a: any) => a.action_type === type)?.value ?? 0;
+
+    // 6) build enriched insights
+    return insights.map((ins) => {
+      const ad = ads.find((a: any) => a.id === ins.ad_id);
+      const cr = ad?.creative || {};
+
+      // choose best thumbnail + permalink
+      let thumbnail_url = cr?.thumbnail_url ?? null;
+      let permalink = cr?.instagram_permalink_url ?? null;
+
+      // IG first
+      if (cr?.effective_instagram_media_id) {
+        const media = igById.get(cr.effective_instagram_media_id);
+        if (media) {
+          if (
+            media.media_type === "CAROUSEL_ALBUM" &&
+            media.children?.data?.length
+          ) {
+            const first = media.children.data[0];
+            thumbnail_url =
+              (first.media_type === "IMAGE" && !first.thumbnail_url
+                ? first.media_url
+                : first.thumbnail_url) || thumbnail_url;
+            permalink = first.permalink || media.permalink || permalink;
+          } else {
+            thumbnail_url =
+              (media.media_type === "IMAGE" && !media.thumbnail_url
+                ? media.media_url
+                : media.thumbnail_url) || thumbnail_url;
+            permalink = media.permalink || permalink;
+          }
+        }
+      }
+
+      // FB fallback
+      if ((!thumbnail_url || !permalink) && cr?.effective_object_story_id) {
+        const post = postById.get(cr.effective_object_story_id);
+        if (post) {
+          const fromAttachments = (att: any): string | null => {
+            const first = att?.data?.[0];
+            return (
+              first?.media?.image?.src ||
+              first?.media?.source ||
+              first?.media?.src ||
+              first?.url ||
+              first?.subattachments?.data?.[0]?.media?.image?.src ||
+              first?.subattachments?.data?.[0]?.media?.source ||
+              first?.subattachments?.data?.[0]?.media?.src ||
+              first?.subattachments?.data?.[0]?.url ||
+              null
+            );
+          };
+          thumbnail_url =
+            fromAttachments(post.attachments) ||
+            post.full_picture ||
+            thumbnail_url;
+          permalink = post.permalink_url || permalink;
+        }
+      }
+
+      // custom conversions aggregation
+      const customConversions: Record<string, number> = {};
+      const customConversionValues: Record<string, number> = {};
+
+      if (Array.isArray(ins.actions)) {
+        for (const a of ins.actions) {
+          const t = a?.action_type ?? "";
+          const m = /^offsite_conversion\.custom\.(\d+)$/.exec(t);
+          if (m) {
+            const id = m[1];
+            customConversions[id] =
+              (customConversions[id] ?? 0) + Number(a.value ?? 0);
+          }
+        }
+      }
+      if (Array.isArray(ins.action_values)) {
+        for (const av of ins.action_values) {
+          const t = av?.action_type ?? "";
+          const m = /^offsite_conversion\.custom\.(\d+)$/.exec(t);
+          if (m) {
+            const id = m[1];
+            customConversionValues[id] =
+              (customConversionValues[id] ?? 0) + Number(av.value ?? 0);
+          }
+        }
+      }
+
+      return {
+        ...ins,
+        purchases: getActionValue(ins, "purchase"),
+        addToCart: getActionValue(ins, "add_to_cart"),
+        roas: ins.purchase_roas?.[0]?.value ?? 0,
+        ad_name: ins?.ad_name ?? null,
+        creative: {
+          id: cr?.id ?? null,
+          thumbnail_url,
+          instagram_permalink_url: permalink,
+          effective_instagram_media_id:
+            cr?.effective_instagram_media_id ?? null,
+          effective_object_story_id: cr?.effective_object_story_id ?? null,
+        },
+        customConversions,
+        customConversionValues,
+      };
+    });
+  }
+
+  private extractPageIdFromStoryId(storyId?: string): string | null {
+    if (!storyId) return null;
+    const m = String(storyId).match(/^(\d+)_\d+$/);
+    return m ? m[1] : null;
   }
 
   public async listCustomConversions(

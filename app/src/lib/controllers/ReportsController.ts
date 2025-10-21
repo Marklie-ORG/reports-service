@@ -3,10 +3,10 @@ import type { Context } from "koa";
 import { ReportsService } from "../services/ReportsService.js";
 import { MarklieError, User } from "marklie-ts-core";
 import {
+  type ProviderConfig,
   type SendAfterReviewRequest,
   type UpdateReportMetadataRequest,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
-import type { ScheduledProviderConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 import { ReportsUtil } from "../utils/ReportsUtil.js";
 
 export class ReportsController extends Router {
@@ -82,8 +82,7 @@ export class ReportsController extends Router {
   }
 
   private async updateReportData(ctx: Context) {
-    const providers: ScheduledProviderConfig[] = ctx.request
-      .body as ScheduledProviderConfig[];
+    const providers: ProviderConfig[] = ctx.request.body as ProviderConfig[];
     const uuid = ctx.params.uuid as string;
 
     await this.reportsService.updateReportData(uuid, providers);
