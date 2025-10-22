@@ -68,3 +68,7 @@ process.on("SIGINT", async () => {
   await database.orm.close();
   process.exit(0);
 });
+
+// await ReportsUtil.processScheduledReportJob({
+//   scheduleUuid: "e47fdfac-46dd-4a7c-b61c-950e57f0db19",
+// });

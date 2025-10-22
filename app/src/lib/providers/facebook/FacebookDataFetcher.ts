@@ -88,6 +88,7 @@ export class FacebookDataFetcher {
       if (sections.includes("kpis")) {
         data.accountInsights = await api.getInsightsSmart("account", fields, {
           datePreset,
+          customDateRange: { since: "2025-10-13", until: "2025-10-19" },
         });
       }
       if (sections.includes("graphs")) {
@@ -96,6 +97,7 @@ export class FacebookDataFetcher {
           fields,
           {
             datePreset,
+            customDateRange: { since: "2025-10-13", until: "2025-10-19" },
             timeIncrement: this.calculateTimeIncrement(datePreset),
           },
         );
@@ -106,7 +108,10 @@ export class FacebookDataFetcher {
       data.campaignInsights = await api.getInsightsSmart(
         "campaign",
         [...fields, "campaign_name", "campaign_id"],
-        { datePreset },
+        {
+          datePreset,
+          customDateRange: { since: "2025-10-13", until: "2025-10-19" },
+        },
       );
     }
 

@@ -1,26 +1,26 @@
 version: "3.9"
 services:
-  # db:
-  #   image: postgres:14-alpine
-  #   restart: always
-  #   environment:
-  #     POSTGRES_USER: postgres
-  #     POSTGRES_PASSWORD: password
-  #     POSTGRES_DB: saas
-  #   ports:
-  #     - "5432:5432"
-  #   volumes:
-  #     - ./initial-docker-run.sql:/docker-entrypoint-initdb.d/initial-docker-run.sql
-  #     - postgres-authservice-data:/var/lib/postgresql/data
-  #   healthcheck:
-  #     test: [ "CMD-SHELL", "pg_isready -U postgres -d postgres" ]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  redis:
-    image: 'redis:alpine'
-    hostname: 'redis'
-    ports:
-      - '6379:6379'
+   db:
+     image: postgres:14-alpine
+     restart: always
+     environment:
+       POSTGRES_USER: postgres
+       POSTGRES_PASSWORD: password
+       POSTGRES_DB: saas
+     ports:
+       - "5432:5432"
+     volumes:
+       - ./initial-docker-run.sql:/docker-entrypoint-initdb.d/initial-docker-run.sql
+       - postgres-authservice-data:/var/lib/postgresql/data
+     healthcheck:
+       test: [ "CMD-SHELL", "pg_isready -U postgres -d postgres" ]
+       interval: 10s
+       timeout: 5s
+       retries: 5
+   redis:
+        image: 'redis:alpine'
+        hostname: 'redis'
+        ports:
+          - '6379:6379'
 volumes:
   postgres-authservice-data:

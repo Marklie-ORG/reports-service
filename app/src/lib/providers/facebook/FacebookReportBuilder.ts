@@ -21,6 +21,14 @@ import type {
 export class FacebookReportBuilder {
   constructor() {}
 
+  private toNum = (v: unknown): number => {
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+    if (typeof v === "string") {
+      return Number(v.replace?.("%", "") ?? v);
+    }
+    return 0;
+  };
+
   /**
    * Build report data from API responses
    */
@@ -80,7 +88,7 @@ export class FacebookReportBuilder {
         accountConfig.metrics,
         accountConfig.customMetrics,
         accountConfig.customFormulas,
-        accountConfig.settings,
+        accountConfig.adsSettings,
       );
 
       adAccounts.push({
@@ -325,6 +333,8 @@ export class FacebookReportBuilder {
 
     const allMetrics = [...metrics, ...(customMetrics || [])];
 
+    insights = this.aggregateAdsByAdName(insights);
+
     const ads = insights.map((insight) => {
       const baseValues = FacebookMetricProcessor.extractBaseValues(insight);
       const calculated =
@@ -360,19 +370,109 @@ export class FacebookReportBuilder {
       };
     });
 
-    // Sort and limit
-    if (settings?.sortBy) {
-      ads.sort((a, b) => {
-        const aVal =
-          a.metrics.find((m) => m.name === settings.sortBy)?.value || 0;
-        const bVal =
-          b.metrics.find((m) => m.name === settings.sortBy)?.value || 0;
-        return bVal - aVal;
-      });
+    console.log(settings);
+    return this.getBestAds(
+      ads,
+      settings?.sortAdsBy,
+      settings?.numberOfAds ?? 10,
+    );
+  }
+
+  private getBestAds(
+    ads: {
+      metrics: Array<{ id?: string; name: string; value: number | string }>;
+    }[],
+    metric: string = "spend",
+    limit: number = 10,
+    dir: "asc" | "desc" = "desc",
+  ): any[] {
+    const key = metric.toLowerCase();
+
+    const toNumber = (v: unknown): number => {
+      if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+      if (typeof v === "string") {
+        const n = parseFloat(v.replace("%", ""));
+        return Number.isFinite(n) ? n : 0;
+      }
+      return 0;
+    };
+
+    const getMetricValue = (ad: any): number => {
+      const m = ad.metrics?.find(
+        (x: any) =>
+          x?.name?.toLowerCase() === key || x?.id?.toLowerCase() === key,
+      );
+      return toNumber(m?.value);
+    };
+
+    const mult = dir === "asc" ? 1 : -1;
+
+    return ads
+      .slice()
+      .sort((a, b) => mult * (getMetricValue(a) - getMetricValue(b)))
+      .slice(0, limit);
+  }
+
+  private aggregateAdsByAdName(adsInsights: any[]): any[] {
+    const map = new Map<string, any>();
+    const numericLike = (v: any) =>
+      typeof v === "number" ||
+      (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v)));
+
+    for (const row of adsInsights) {
+      const key = row.ad_name || "Unnamed Ad";
+      const acc = map.get(key) ?? { ...row };
+      if (!map.has(key)) {
+        map.set(key, acc);
+        continue;
+      }
+
+      // sum numeric fields
+      for (const [k, v] of Object.entries(row)) {
+        if (
+          k === "ad_id" ||
+          k === "adId" ||
+          k === "ad_name" ||
+          k === "creative"
+        )
+          continue;
+        if (numericLike(v)) acc[k] = this.toNum(acc[k]) + this.toNum(v);
+      }
+
+      // merge actions
+      if (Array.isArray(row.actions)) {
+        const m = new Map<string, number>();
+        for (const a of acc.actions ?? [])
+          m.set(a.action_type, this.toNum(a.value));
+        for (const a of row.actions)
+          m.set(
+            a.action_type,
+            (m.get(a.action_type) ?? 0) + this.toNum(a.value),
+          );
+        acc.actions = [...m].map(([action_type, value]) => ({
+          action_type,
+          value: String(value),
+        }));
+      }
+
+      // merge action_values
+      if (Array.isArray(row.action_values)) {
+        const m = new Map<string, number>();
+        for (const a of acc.action_values ?? [])
+          m.set(a.action_type, this.toNum(a.value));
+        for (const a of row.action_values)
+          m.set(
+            a.action_type,
+            (m.get(a.action_type) ?? 0) + this.toNum(a.value),
+          );
+        acc.action_values = [...m].map(([action_type, value]) => ({
+          action_type,
+          value: String(value),
+        }));
+      }
     }
 
-    const limit = settings?.maxAds || 10;
-    return ads.slice(0, limit);
+    return [...map.values()];
   }
 
   private aggregateInsights(insights: any[]): any {
