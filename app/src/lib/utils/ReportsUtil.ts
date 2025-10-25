@@ -302,8 +302,16 @@ export class ReportsUtil {
 
       await page.goto(`${baseUrl}/pdf-report/${reportUuid}`, {
         waitUntil: "domcontentloaded",
-        timeout: 120000,
+        timeout: 120_000,
       });
+
+      // wait for frontend to set: document.body.dataset.reportReady = "true"
+      await page.waitForFunction(
+        () => document.body?.dataset?.reportReady === "true",
+        { timeout: 120_000, polling: 500 },
+      );
+
+      await new Promise((r) => setTimeout(r, 500));
 
       const dashboardHeight = await page.evaluate(() => {
         const el = document.querySelector(
