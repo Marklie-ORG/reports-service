@@ -26,7 +26,7 @@ const config = ReportsConfigService.getInstance();
 export class ReportsUtil {
   public static async processScheduledReportJob(data: {
     scheduleUuid: string;
-  }): Promise<{ success: boolean }> {
+  }): Promise<{ success: boolean, reportUuid?: string }> {
     try {
       const schedulingOption = await database.em.findOne(SchedulingOption, {
         uuid: data.scheduleUuid,
@@ -93,7 +93,7 @@ export class ReportsUtil {
       );
       await this.logReportGeneration(client, report.uuid);
 
-      return { success: true };
+      return { success: true, reportUuid: report.uuid };
     } catch (e) {
       this.handleProcessingError(e);
       return { success: false };

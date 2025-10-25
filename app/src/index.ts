@@ -10,6 +10,7 @@ import {
   ErrorMiddleware,
   Log,
   SentryMiddleware,
+  ValidationMiddleware
 } from "marklie-ts-core";
 
 import { ReportQueueService } from "./lib/services/ReportsQueueService.js";
@@ -44,7 +45,7 @@ app.use(
 app.use(koabodyparser());
 app.use(CookiesMiddleware);
 app.use(AuthMiddleware(["/api/scheduling-options/available-metrics"]));
-// app.use(ValidationMiddleware());
+app.use(ValidationMiddleware());
 app.use(ErrorMiddleware());
 app.use(SentryMiddleware());
 app.use(ActivityLogMiddleware());

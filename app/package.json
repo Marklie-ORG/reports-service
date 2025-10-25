@@ -21,6 +21,7 @@
     "@mikro-orm/cli": "^6.5.8",
     "@mikro-orm/core": "^6.5.8",
     "@mikro-orm/migrations": "^6.5.8",
+    "@swc/core-darwin-arm64": "^1.13.21",
     "axios": "^1.8.4",
     "bullmq": "^5.48.1",
     "cron-parser": "^5.4.0",
@@ -28,7 +29,7 @@
     "dotenv": "^16.5.0",
     "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.2",
-    "marklie-ts-core": "1.6.19",
+    "marklie-ts-core": "1.6.21",
     "mathjs": "^15.0.0",
     "mikro-orm": "^6.5.8",
     "p-limit": "^6.2.0",
@@ -37,8 +38,8 @@
     "zod": "^4.0.5"
   },
   "devDependencies": {
-    "@swc/cli": "^0.6.0",
-    "@swc/core": "^1.10.7",
+    "@swc/cli": "^0.7.8",
+    "@swc/core": "1.13.20",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/koa": "^2.13.5",
     "@types/koa-bodyparser": "^4.3.12",

@@ -154,6 +154,22 @@ export class ReportsService {
     } as any);
   }
 
+  async generateReport(scheduleUuid: string) {
+    if (!scheduleUuid) {
+      throw new Error("No scheduleUuid");
+    }
+
+    const result = await ReportsUtil.processScheduledReportJob({
+      scheduleUuid: scheduleUuid,
+    });
+
+    if (!result.success) {
+      throw new Error("Error generating report");
+    }
+
+    return result.reportUuid;
+  }
+
   async updateReportImages(uuid: string, images: ReportImages) {
     const report = await database.em.findOne(Report, { uuid });
     if (!report) throw new Error(`Report ${uuid} not found`);
