@@ -3,10 +3,12 @@ import type { Context } from "koa";
 import { ReportsService } from "../services/ReportsService.js";
 import { MarklieError, User } from "marklie-ts-core";
 import {
+  type ProviderConfig,
+  type ReportJobData,
   type SendAfterReviewRequest,
   type UpdateReportMetadataRequest,
+  type GenerateReportRequest,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
-import type { ScheduledProviderConfig } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 import { ReportsUtil } from "../utils/ReportsUtil.js";
 
 export class ReportsController extends Router {
@@ -22,6 +24,7 @@ export class ReportsController extends Router {
     this.get("/", this.getReports.bind(this));
     this.get("/client/:uuid", this.getClientReports.bind(this));
     this.get("/pending-review/count", this.getPendingReviewCount.bind(this));
+    this.post("/generate", this.generateReport.bind(this));
     this.post("/send-after-review", this.sendAfterReview.bind(this));
     this.put("/report-data/:uuid", this.updateReportData.bind(this));
     this.put("/report-metadata/:uuid", this.updateReportMetadata.bind(this));
@@ -81,9 +84,29 @@ export class ReportsController extends Router {
     ctx.status = 200;
   }
 
+  private async generateReport(ctx: Context) {
+    const { scheduleUuid } = ctx.request.body as GenerateReportRequest;
+
+    const reportUuid = await this.reportsService.generateReport(scheduleUuid);
+
+    if (!reportUuid) {
+      ctx.body = {
+        message: "Failed to generate report",
+        scheduleUuid: scheduleUuid
+      };
+      ctx.status = 500;
+    }
+
+    ctx.body = {
+      message: "Report generated successfully",
+      scheduleUuid: scheduleUuid,
+      reportUuid: reportUuid
+    };
+    ctx.status = 200;
+  }
+
   private async updateReportData(ctx: Context) {
-    const providers: ScheduledProviderConfig[] = ctx.request
-      .body as ScheduledProviderConfig[];
+    const providers: ProviderConfig[] = ctx.request.body as ProviderConfig[];
     const uuid = ctx.params.uuid as string;
 
     await this.reportsService.updateReportData(uuid, providers);

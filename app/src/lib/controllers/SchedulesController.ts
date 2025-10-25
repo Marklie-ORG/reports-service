@@ -1,9 +1,11 @@
 import Router from "koa-router";
 import type { Context } from "koa";
 import { MarklieError, User } from "marklie-ts-core";
-import type { ScheduleBulkActionRequest } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { SchedulesService } from "../services/SchedulesService.js";
-import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
+import type {
+  ReportScheduleRequest,
+  ScheduleBulkActionRequest,
+} from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 export class SchedulesController extends Router {
   private readonly schedulesService: SchedulesService;

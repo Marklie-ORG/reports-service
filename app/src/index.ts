@@ -10,13 +10,14 @@ import {
   ErrorMiddleware,
   Log,
   SentryMiddleware,
-  ValidationMiddleware,
+  ValidationMiddleware
 } from "marklie-ts-core";
 
 import { ReportQueueService } from "./lib/services/ReportsQueueService.js";
 import { ReportsController } from "./lib/controllers/ReportsController.js";
 import { ReportsConfigService } from "./lib/config/config.js";
 import { SchedulesController } from "./lib/controllers/SchedulesController.js";
+import { CustomFormulasController } from "./lib/controllers/CustomFormulasController.js";
 
 const app = new Koa();
 const logger = Log.getInstance();
@@ -24,7 +25,7 @@ const config = ReportsConfigService.getInstance();
 
 const database = await Database.getInstance();
 logger.info("Database connected!");
- 
+
 const reportQueue = ReportQueueService.getInstance();
 
 app.use(
@@ -43,11 +44,7 @@ app.use(
 
 app.use(koabodyparser());
 app.use(CookiesMiddleware);
-app.use(
-  AuthMiddleware([
-    "/api/scheduling-options/available-metrics",
-  ]),
-);
+app.use(AuthMiddleware(["/api/scheduling-options/available-metrics"]));
 app.use(ValidationMiddleware());
 app.use(ErrorMiddleware());
 app.use(SentryMiddleware());
@@ -59,6 +56,9 @@ app.use(new ReportsController().allowedMethods());
 app.use(new SchedulesController().routes());
 app.use(new SchedulesController().allowedMethods());
 
+app.use(new CustomFormulasController().routes());
+app.use(new CustomFormulasController().allowedMethods());
+
 const PORT = config.get("PORT");
 app.listen(PORT, () => {
   logger.info(`Reports service running on port ${PORT}`);
@@ -69,3 +69,7 @@ process.on("SIGINT", async () => {
   await database.orm.close();
   process.exit(0);
 });
+
+// await ReportsUtil.processScheduledReportJob({
+//   scheduleUuid: "e47fdfac-46dd-4a7c-b61c-950e57f0db19",
+// });
