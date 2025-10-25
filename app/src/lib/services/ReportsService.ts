@@ -362,7 +362,7 @@ export class ReportsService {
       if (!scheduledProvider) continue;
 
       const sectionConfigByName = new Map(
-        scheduledProvider.sections.map((s) => [s.name, s]),
+        scheduledProvider.sections.map((s) => [s.key, s]),
       );
 
       for (const section of providerReport.sections ?? []) {
