@@ -29,7 +29,7 @@
     "dotenv": "^16.5.0",
     "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.2",
-    "marklie-ts-core": "1.6.21",
+    "marklie-ts-core": "1.6.22",
     "mathjs": "^15.0.0",
     "mikro-orm": "^6.5.8",
     "p-limit": "^6.2.0",
