@@ -85,10 +85,7 @@ export class FacebookReportBuilder {
       const data = await this.processAccountData(
         config.name,
         apiData,
-        accountConfig.metrics,
-        accountConfig.customMetrics,
-        accountConfig.customFormulas,
-        accountConfig.adsSettings,
+        accountConfig
       );
 
       adAccounts.push({
@@ -112,11 +109,11 @@ export class FacebookReportBuilder {
   private async processAccountData(
     sectionType: SectionType,
     apiData: any,
-    metrics: MetricConfig[],
-    customMetrics?: CustomMetricConfig[],
-    customFormulas?: CustomFormula[],
-    settings?: any,
+    accountConfig: any,
   ): Promise<any[]> {
+
+    const { metrics, customMetrics, customFormulas, adsSettings, campaignsSettings } = accountConfig;
+
     switch (sectionType) {
       case "kpis":
         return await this.processKpis(
@@ -140,7 +137,7 @@ export class FacebookReportBuilder {
           metrics,
           customMetrics,
           customFormulas,
-          settings,
+          campaignsSettings,
         );
 
       case "ads":
@@ -149,7 +146,7 @@ export class FacebookReportBuilder {
           metrics,
           customMetrics,
           customFormulas,
-          settings,
+          adsSettings,
         );
 
       default:
@@ -369,8 +366,7 @@ export class FacebookReportBuilder {
         ),
       };
     });
-
-    console.log(settings);
+    
     return this.getBestAds(
       ads,
       settings?.sortAdsBy,
