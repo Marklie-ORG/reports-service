@@ -54,7 +54,7 @@ export class FacebookProvider implements AdsProvider {
 
     // Group sections by account to optimize API calls
     const accountConfigs = this.groupByAccount(sections);
-    const sectionTypes = [...new Set(sections.map((s) => s.name))];
+    const sectionTypes = [...new Set(sections.map((s) => s.key))];
 
     // Fetch data for all accounts
     const apiDataMap = await this.fetcher.fetchMultipleAccounts(
