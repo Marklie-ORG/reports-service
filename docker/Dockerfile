@@ -15,7 +15,7 @@ COPY ../app/package.json ../app/pnpm-lock.yaml ./
 
 RUN pnpm install
 
-RUN npx puppeteer browsers install chrome
+RUN npx puppeteer browsers install chrome-headless-shell
 
 COPY ../app/src ./src
 COPY ../app/.swcrc ./
