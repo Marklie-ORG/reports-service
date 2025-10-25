@@ -569,7 +569,6 @@ export class FacebookApi {
     const insights = await this.getInsightsSmart("ad", [...fields, "ad_id"], {
       datePreset: datePreset,
       actionBreakdowns: ["action_type"],
-      customDateRange: { since: "2025-10-13", until: "2025-10-19" },
     });
 
     if (insights.length === 0) return [];
