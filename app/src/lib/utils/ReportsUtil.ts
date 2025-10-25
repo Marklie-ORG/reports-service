@@ -301,7 +301,7 @@ export class ReportsUtil {
       }, accessToken);
 
       await page.goto(`${baseUrl}/pdf-report/${reportUuid}`, {
-        waitUntil: "networkidle0",
+        waitUntil: "domcontentloaded",
         timeout: 120000,
       });
 
