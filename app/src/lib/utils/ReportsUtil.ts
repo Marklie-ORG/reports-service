@@ -303,7 +303,8 @@ export class ReportsUtil {
     try {
       const page = await browser.newPage();
 
-      await page.goto(`${baseUrl}/pdf-report/${reportUuid}`);
+      // await page.goto(`${baseUrl}/pdf-report/${reportUuid}`);
+      await page.goto(`${baseUrl}`);
 
       // setting system access token to the page so that puppeteer can call "get report"
       const accessToken = AuthenticationUtil.signSystemAccessToken();
