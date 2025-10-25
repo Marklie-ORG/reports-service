@@ -4,7 +4,6 @@ import { ReportsService } from "../services/ReportsService.js";
 import { MarklieError, User } from "marklie-ts-core";
 import {
   type ProviderConfig,
-  type ReportJobData,
   type SendAfterReviewRequest,
   type UpdateReportMetadataRequest,
   type GenerateReportRequest,
