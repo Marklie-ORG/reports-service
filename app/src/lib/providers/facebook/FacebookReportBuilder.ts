@@ -99,7 +99,7 @@ export class FacebookReportBuilder {
     }
 
     return {
-      key: config.name,
+      name: config.name,
       order: config.order,
       enabled: true,
       adAccounts: adAccounts.sort((a, b) => a.order - b.order),
