@@ -77,15 +77,15 @@ export class FacebookReportBuilder {
           currency: accountConfig.currency || details?.currency || "€",
           order: accountConfig.order,
           enabled: true,
-          data: this.createEmptyData(config.key),
+          data: this.createEmptyData(config.name),
         });
         continue;
       }
 
       const data = await this.processAccountData(
-        config.key,
+        config.name,
         apiData,
-        accountConfig
+        accountConfig,
       );
 
       adAccounts.push({
@@ -99,7 +99,7 @@ export class FacebookReportBuilder {
     }
 
     return {
-      key: config.key,
+      key: config.name,
       order: config.order,
       enabled: true,
       adAccounts: adAccounts.sort((a, b) => a.order - b.order),
@@ -111,8 +111,13 @@ export class FacebookReportBuilder {
     apiData: any,
     accountConfig: any,
   ): Promise<any[]> {
-
-    const { metrics, customMetrics, customFormulas, adsSettings, campaignsSettings } = accountConfig;
+    const {
+      metrics,
+      customMetrics,
+      customFormulas,
+      adsSettings,
+      campaignsSettings,
+    } = accountConfig;
 
     switch (sectionType) {
       case "kpis":
@@ -366,7 +371,7 @@ export class FacebookReportBuilder {
         ),
       };
     });
-    
+
     return this.getBestAds(
       ads,
       settings?.sortAdsBy,
