@@ -26,7 +26,7 @@ const config = ReportsConfigService.getInstance();
 export class ReportsUtil {
   public static async processScheduledReportJob(data: {
     scheduleUuid: string;
-  }): Promise<{ success: boolean, reportUuid?: string }> {
+  }): Promise<{ success: boolean; reportUuid?: string }> {
     try {
       const schedulingOption = await database.em.findOne(SchedulingOption, {
         uuid: data.scheduleUuid,
@@ -100,9 +100,6 @@ export class ReportsUtil {
     }
   }
 
-  /**
-   * Generate reports for all providers
-   */
   private static async generateProvidersReports(
     providerConfigs: ProviderConfig[],
     clientUuid: string,
@@ -293,6 +290,7 @@ export class ReportsUtil {
           ? "https://staging.marklie.com"
           : "http://localhost:4200";
 
+    // @ts-ignore
     const browser = await puppeteer.launch(config.getPuppeteerConfig());
     try {
       const page = await browser.newPage();
@@ -326,7 +324,6 @@ export class ReportsUtil {
       await browser.close();
     }
   }
-
   private static async updateLastRun(scheduleUuid: string) {
     const option = await database.em.findOne(SchedulingOption, {
       uuid: scheduleUuid,
