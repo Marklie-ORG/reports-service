@@ -41,7 +41,7 @@ export class ReportsConfigService extends ConfigService<ReportsEnvironment> {
   public getPuppeteerConfig() {
     const executablePath = this.get("PUPPETEER_EXECUTABLE_PATH");
     return {
-      headless: true,
+      headless: "shell",
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
       defaultViewport: { width: 1600, height: 1000 },
       timeout: this.get("REPORT_GENERATION_TIMEOUT"),
