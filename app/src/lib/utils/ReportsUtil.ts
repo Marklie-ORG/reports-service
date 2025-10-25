@@ -286,51 +286,32 @@ export class ReportsUtil {
   }
 
   public static async generateReportPdf(reportUuid: string): Promise<Buffer> {
-    let baseUrl: string;
-    switch (process.env.ENVIRONMENT) {
-      case "production":
-        baseUrl = "https://marklie.com";
-        break;
-      case "staging":
-        baseUrl = "https://staging.marklie.com";
-        break;
-      default:
-        baseUrl = "http://localhost:4200";
-    }
+    const baseUrl =
+      process.env.ENVIRONMENT === "production"
+        ? "https://marklie.com"
+        : process.env.ENVIRONMENT === "staging"
+          ? "https://staging.marklie.com"
+          : "http://localhost:4200";
 
     const browser = await puppeteer.launch(config.getPuppeteerConfig());
-
     try {
       const page = await browser.newPage();
 
-      // await page.goto(`${baseUrl}/pdf-report/${reportUuid}`);
-      await page.goto(`${baseUrl}`);
-
-      // setting system access token to the page so that puppeteer can call "get report"
       const accessToken = AuthenticationUtil.signSystemAccessToken();
-      await page.evaluate((token) => {
-        const storage = (
-          globalThis as typeof globalThis & {
-            localStorage: { setItem(key: string, value: string): void };
-          }
-        ).localStorage;
-
-        storage.setItem("accessToken", token);
+      await page.evaluateOnNewDocument((token) => {
+        window.localStorage.setItem("accessToken", token);
       }, accessToken);
 
-      // going to the page again, because previous time there was no access token in local storage
       await page.goto(`${baseUrl}/pdf-report/${reportUuid}`, {
-        waitUntil: "domcontentloaded",
+        waitUntil: "networkidle0",
         timeout: 120000,
       });
-
-      await new Promise((res) => setTimeout(res, 3000));
 
       const dashboardHeight = await page.evaluate(() => {
         const el = document.querySelector(
           ".report-container",
         ) as HTMLElement | null;
-        return el ? el.scrollHeight : 2000;
+        return el?.scrollHeight ?? 2000;
       });
 
       const pdf = await page.pdf({
