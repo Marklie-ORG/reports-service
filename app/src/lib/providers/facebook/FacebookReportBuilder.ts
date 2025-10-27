@@ -372,11 +372,7 @@ export class FacebookReportBuilder {
       };
     });
 
-    return this.getBestAds(
-      ads,
-      settings?.sortAdsBy,
-      settings?.numberOfAds ?? 10,
-    );
+    return this.getBestAds(ads, settings?.sortBy, settings?.maxAds ?? 10);
   }
 
   private getBestAds(
