@@ -77,13 +77,13 @@ export class FacebookReportBuilder {
           currency: accountConfig.currency || details?.currency || "€",
           order: accountConfig.order,
           enabled: true,
-          data: this.createEmptyData(config.key),
+          data: this.createEmptyData(config.name),
         });
         continue;
       }
 
       const data = await this.processAccountData(
-        config.key,
+        config.name,
         apiData,
         accountConfig,
       );
@@ -99,7 +99,7 @@ export class FacebookReportBuilder {
     }
 
     return {
-      key: config.key,
+      key: config.name,
       order: config.order,
       enabled: true,
       adAccounts: adAccounts.sort((a, b) => a.order - b.order),
