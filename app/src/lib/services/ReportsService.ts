@@ -11,9 +11,7 @@ import {
 import { Temporal } from "@js-temporal/polyfill";
 import { ReportsConfigService } from "../config/config.js";
 import { ReportQueueService } from "./ReportsQueueService.js";
-import type { ReportImages } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
-const database = await Database.getInstance();
 const logger = Log.getInstance().extend("reports-service");
 const config = ReportsConfigService.getInstance();
 
@@ -23,6 +21,7 @@ type PartialDeep<T> = {
 
 export class ReportsService {
   async getReport(uuid: string): Promise<Report | null> {
+    const database = await Database.getInstance();
     const report = await database.em.findOne(
       Report,
       { uuid },
@@ -51,6 +50,7 @@ export class ReportsService {
 
   async getReports(organizationUuid: string | undefined): Promise<Report[]> {
     if (!organizationUuid) throw new Error("No organization Uuid");
+    const database = await Database.getInstance();
     return database.em.find(
       Report,
       { organization: organizationUuid },
@@ -59,6 +59,7 @@ export class ReportsService {
   }
 
   async getClientReports(clientUuid: string): Promise<Report[]> {
+    const database = await Database.getInstance();
     return database.em.find(
       Report,
       { client: clientUuid },
@@ -67,6 +68,7 @@ export class ReportsService {
   }
 
   async sendReportAfterReview(uuid: string, sendAt?: string) {
+    const database = await Database.getInstance();
     const report = await database.em.findOne(
       Report,
       { uuid },
@@ -147,6 +149,7 @@ export class ReportsService {
       throw new Error("No organization Uuid");
     }
 
+    const database = await Database.getInstance();
     return database.em.count(Report, {
       organization: organizationUuid,
       review_required: true,
@@ -170,7 +173,14 @@ export class ReportsService {
     return result.reportUuid;
   }
 
-  async updateReportImages(uuid: string, images: ReportImages) {
+  async updateReportImages(
+    uuid: string,
+    images: {
+      clientLogo: string | undefined;
+      organizationLogo: string | undefined;
+    },
+  ) {
+    const database = await Database.getInstance();
     const report = await database.em.findOne(Report, { uuid });
     if (!report) throw new Error(`Report ${uuid} not found`);
 
@@ -203,6 +213,7 @@ export class ReportsService {
     uuid: string,
     patch: Partial<Record<string, any>>,
   ): Promise<Report> {
+    const database = await Database.getInstance();
     const em = database.em.fork({ clear: true });
 
     return em.transactional(async (tem) => {
@@ -334,6 +345,7 @@ export class ReportsService {
   }
 
   public async updateReportData(uuid: string, providers: ProviderConfig[]) {
+    const database = await Database.getInstance();
     const report = await database.em.findOne(Report, { uuid });
     if (!report) throw new Error(`Report ${uuid} not found`);
 

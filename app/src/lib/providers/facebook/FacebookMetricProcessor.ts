@@ -243,9 +243,7 @@ export class FacebookMetricProcessor {
 
     return { byId, byName };
   }
-  /**
-   * Convert to metric values for report
-   */
+
   static toMetricValues(
     baseValues: Record<string, number>,
     selected: (MetricConfig | CustomMetricConfig)[],
@@ -255,7 +253,6 @@ export class FacebookMetricProcessor {
   ): MetricValue[] {
     const byName = new Map<string, MetricValue>();
 
-    // 1) regular + custom metrics selected by user
     for (const m of selected) {
       const name = m.name;
       const v =

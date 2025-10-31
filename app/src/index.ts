@@ -1,75 +1,36 @@
 import Koa from "koa";
-import koabodyparser from "koa-bodyparser";
-import cors from "@koa/cors";
 import "dotenv/config";
-import {
-  ActivityLogMiddleware,
-  AuthMiddleware,
-  CookiesMiddleware,
-  Database,
-  ErrorMiddleware,
-  Log,
-  SentryMiddleware,
-  ValidationMiddleware
-} from "marklie-ts-core";
+import { Database, Log, Validator } from "marklie-ts-core";
 
 import { ReportQueueService } from "./lib/services/ReportsQueueService.js";
-import { ReportsController } from "./lib/controllers/ReportsController.js";
 import { ReportsConfigService } from "./lib/config/config.js";
-import { SchedulesController } from "./lib/controllers/SchedulesController.js";
-import { CustomFormulasController } from "./lib/controllers/CustomFormulasController.js";
+import { reportsValidationRules } from "./lib/schemas/ValidationRules.js";
+import { routes } from "./routes.js";
+import { applyMiddlewares } from "./middlewares.js";
 
 const app = new Koa();
 const logger = Log.getInstance();
 const config = ReportsConfigService.getInstance();
 
 const database = await Database.getInstance();
-logger.info("Database connected!");
+logger.info("Database connected and entities loaded!");
+
+Validator.registerRules(reportsValidationRules);
+logger.info("Validation rules registered!");
 
 const reportQueue = ReportQueueService.getInstance();
 
-app.use(
-  cors({
-    origin: (ctx) => {
-      const allowedOrigins = config.get("ALLOWED_ORIGINS");
-      const requestOrigin = ctx.request.header.origin;
-      if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
-        return requestOrigin;
-      }
-      return allowedOrigins[0];
-    },
-    credentials: true,
-  }),
-);
-
-app.use(koabodyparser());
-app.use(CookiesMiddleware);
-app.use(AuthMiddleware(["/api/scheduling-options/available-metrics"]));
-app.use(ValidationMiddleware());
-app.use(ErrorMiddleware());
-app.use(SentryMiddleware());
-app.use(ActivityLogMiddleware());
-
-app.use(new ReportsController().routes());
-app.use(new ReportsController().allowedMethods());
-
-app.use(new SchedulesController().routes());
-app.use(new SchedulesController().allowedMethods());
-
-app.use(new CustomFormulasController().routes());
-app.use(new CustomFormulasController().allowedMethods());
+applyMiddlewares(app, config);
+app.use(routes);
 
 const PORT = config.get("PORT");
 app.listen(PORT, () => {
   logger.info(`Reports service running on port ${PORT}`);
 });
+
 process.on("SIGINT", async () => {
   logger.error("🛑 Gracefully shutting down...");
   await reportQueue.close();
   await database.orm.close();
   process.exit(0);
 });
-
-// await ReportsUtil.processScheduledReportJob({
-//   scheduleUuid: "e47fdfac-46dd-4a7c-b61c-950e57f0db19",
-// });

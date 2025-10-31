@@ -1,4 +1,4 @@
-import Router from "koa-router";
+import Router from "@koa/router";
 import type { Context } from "koa";
 import { CustomFormulasService } from "../services/CustomFormulasService.js";
 import type {
@@ -24,42 +24,41 @@ export class CustomFormulasController extends Router {
 
   private async createCustomFormula(ctx: Context) {
     const formula = ctx.request.body as CreateAdAccountCustomFormulaRequest;
-    const customFormula =
-      await this.customFormulasService.createCustomFormula(formula);
-    ctx.body = customFormula;
+
+    ctx.body = await this.customFormulasService.createCustomFormula(formula);
     ctx.status = 200;
   }
 
   private async getAdAccountCustomFormulas(ctx: Context) {
     const adAccountId = ctx.params.uuid as string;
-    const customFormulas =
+
+    ctx.body =
       await this.customFormulasService.getAdAccountCustomFormulas(adAccountId);
-    ctx.body = customFormulas;
     ctx.status = 200;
   }
 
   private async updateCustomFormula(ctx: Context) {
     const uuid = ctx.params.uuid as string;
     const formula = ctx.request.body as UpdateAdAccountCustomFormulaRequest;
-    const customFormula = await this.customFormulasService.updateCustomFormula(
+
+    ctx.body = await this.customFormulasService.updateCustomFormula(
       uuid,
       formula,
     );
-    ctx.body = customFormula;
     ctx.status = 200;
   }
 
   private async deleteCustomFormula(ctx: Context) {
     const uuid = ctx.params.uuid as string;
+
     await this.customFormulasService.deleteCustomFormula(uuid);
     ctx.status = 200;
   }
 
   private async getCustomFormula(ctx: Context) {
     const uuid = ctx.params.uuid as string;
-    const customFormula =
-      await this.customFormulasService.getCustomFormula(uuid);
-    ctx.body = customFormula;
+
+    ctx.body = await this.customFormulasService.getCustomFormula(uuid);
     ctx.status = 200;
   }
 }

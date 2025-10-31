@@ -20,7 +20,6 @@ import { CronUtil } from "./CronUtil.js";
 import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
 const logger: Log = Log.getInstance().extend("reports-util");
-const database = await Database.getInstance();
 const config = ReportsConfigService.getInstance();
 
 export class ReportsUtil {
@@ -28,6 +27,8 @@ export class ReportsUtil {
     scheduleUuid: string;
   }): Promise<{ success: boolean; reportUuid?: string }> {
     try {
+      const database = await Database.getInstance();
+
       const schedulingOption = await database.em.findOne(SchedulingOption, {
         uuid: data.scheduleUuid,
       });
@@ -145,6 +146,8 @@ export class ReportsUtil {
   private static async getClient(
     clientUuid: string,
   ): Promise<OrganizationClient | null> {
+    const database = await Database.getInstance();
+
     const client = await database.em.findOne(
       OrganizationClient,
       { uuid: clientUuid },
@@ -165,6 +168,7 @@ export class ReportsUtil {
     pdfFilename: string,
   ): Promise<Report> {
     const title = schedule.customization?.title?.trim() || "Report";
+    const database = await Database.getInstance();
 
     const report = database.em.create(Report, {
       organization: client.organization,
@@ -260,6 +264,8 @@ export class ReportsUtil {
     client: OrganizationClient,
     reportUuid: string,
   ): Promise<void> {
+    const database = await await Database.getInstance();
+
     const log = database.em.create(ActivityLog, {
       organization: client.organization.uuid,
       action: "report_generated",
@@ -333,6 +339,8 @@ export class ReportsUtil {
     }
   }
   private static async updateLastRun(scheduleUuid: string) {
+    const database = await Database.getInstance();
+
     const option = await database.em.findOne(SchedulingOption, {
       uuid: scheduleUuid,
     });

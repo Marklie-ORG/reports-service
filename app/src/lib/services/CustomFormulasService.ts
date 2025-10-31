@@ -8,12 +8,11 @@ import type {
   UpdateAdAccountCustomFormulaRequest,
 } from "marklie-ts-core/dist/lib/interfaces/CustomFormulasInterfaces.js";
 
-const database = await Database.getInstance();
-
 export class CustomFormulasService {
   async createCustomFormula(
     formula: CreateAdAccountCustomFormulaRequest,
   ): Promise<AdAccountCustomFormula> {
+    const database = await Database.getInstance();
     const adAccount = await database.em.findOne(ClientAdAccount, {
       adAccountId: formula.adAccountId,
     });
@@ -34,6 +33,7 @@ export class CustomFormulasService {
   }
 
   async getCustomFormula(uuid: string): Promise<AdAccountCustomFormula> {
+    const database = await Database.getInstance();
     const customFormula = await database.em.findOne(AdAccountCustomFormula, {
       uuid,
     });
@@ -44,6 +44,7 @@ export class CustomFormulasService {
   async getAdAccountCustomFormulas(
     adAccountId: string,
   ): Promise<AdAccountCustomFormula[]> {
+    const database = await Database.getInstance();
     return database.em.find(AdAccountCustomFormula, { adAccount: adAccountId });
   }
 
@@ -51,6 +52,7 @@ export class CustomFormulasService {
     uuid: string,
     formula: UpdateAdAccountCustomFormulaRequest,
   ): Promise<AdAccountCustomFormula> {
+    const database = await Database.getInstance();
     const customFormula = await database.em.findOne(AdAccountCustomFormula, {
       uuid,
     });
@@ -65,6 +67,7 @@ export class CustomFormulasService {
   }
 
   async deleteCustomFormula(uuid: string): Promise<void> {
+    const database = await Database.getInstance();
     const customFormula = await database.em.findOne(AdAccountCustomFormula, {
       uuid,
     });

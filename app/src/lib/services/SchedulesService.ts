@@ -19,7 +19,6 @@ import type {
 } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 import { FACEBOOK_BASE_METRICS } from "../providers/facebook/FacebookMetricProcessor.js";
 
-const database = await Database.getInstance();
 const logger = Log.getInstance().extend("schedules-service");
 
 export class SchedulesService {
@@ -27,6 +26,7 @@ export class SchedulesService {
     scheduleOption: ReportScheduleRequest,
   ): Promise<string | void> {
     try {
+      const database = await Database.getInstance();
       const client = await database.em.findOne(OrganizationClient, {
         uuid: scheduleOption.clientUuid,
       });
@@ -74,6 +74,8 @@ export class SchedulesService {
     uuid: string,
     scheduleOption: ReportScheduleRequest,
   ): Promise<string | void> {
+    const database = await Database.getInstance();
+
     return await database.em.transactional(async (em) => {
       const schedule = await em.findOne(
         SchedulingOption,
@@ -122,6 +124,7 @@ export class SchedulesService {
       };
     }
   > {
+    const database = await Database.getInstance();
     const gcs = GCSWrapper.getInstance("marklie-client-reports");
     const opt = await database.em.findOne(SchedulingOption, { uuid });
     if (!opt) throw MarklieError.notFound("SchedulingOption", uuid);
@@ -177,6 +180,8 @@ export class SchedulesService {
   async getSchedulingOptions(
     clientUuid: string,
   ): Promise<SchedulingOptionWithExtras[]> {
+    const database = await Database.getInstance();
+
     const gcs = GCSWrapper.getInstance("marklie-client-reports");
     const options = await database.em.find(SchedulingOption, {
       client: clientUuid,
@@ -249,6 +254,8 @@ export class SchedulesService {
   }
 
   public async deleteSchedulingOptions(uuids: string[]): Promise<void> {
+    const database = await Database.getInstance();
+
     const options = await database.em.find(SchedulingOption, {
       uuid: { $in: uuids },
     });
@@ -264,6 +271,8 @@ export class SchedulesService {
   }
 
   public async stopSchedulingOptions(uuids: string[]): Promise<void> {
+    const database = await Database.getInstance();
+
     const options = await database.em.find(SchedulingOption, {
       uuid: { $in: uuids },
     });
@@ -280,6 +289,8 @@ export class SchedulesService {
   }
 
   public async activateSchedulingOptions(uuids: string[]): Promise<void> {
+    const database = await Database.getInstance();
+
     const options = await database.em.find(
       SchedulingOption,
       { uuid: { $in: uuids } },
@@ -308,11 +319,13 @@ export class SchedulesService {
     await database.em.flush();
   }
 
-  private assignScheduleFields(
+  private async assignScheduleFields(
     schedule: SchedulingOption,
     option: ReportScheduleRequest,
     client: OrganizationClient,
   ) {
+    const database = await Database.getInstance();
+
     const newSchedule: typeof schedule.schedule = {
       timezone: option.timeZone,
       datePreset: option.datePreset,
@@ -389,6 +402,8 @@ export class SchedulesService {
   }
 
   public async getAvailableMetricsForAdAccounts(clientUuid: string) {
+    const database = await Database.getInstance();
+
     const client = await database.em.findOne(
       OrganizationClient,
       { uuid: clientUuid },
@@ -405,20 +420,15 @@ export class SchedulesService {
       adAccounts.map((a) => [a.adAccountId, a.adAccountName ?? ""]),
     );
 
-    // Fetch in parallel
     const [customMetricsByAdAccount, formulas] = await Promise.all([
-      // returns Record<adAccountId, {id:string; name:string}[]>
       FacebookApi.create(orgUuid).then((api) =>
         api.getCustomConversionsForAdAccounts(adAccountIds),
       ),
-      // if relation exists: adAccount -> ClientAdAccount
       database.em.find(
         AdAccountCustomFormula,
         { adAccount: { adAccountId: { $in: adAccountIds } } },
         { populate: ["adAccount"] },
       ),
-      // If you store scalar FK instead, use:
-      // database.em.find(AdAccountCustomFormula, { adAccountId: { $in: adAccountIds } })
     ]);
 
     // Map formulas by adAccountId
