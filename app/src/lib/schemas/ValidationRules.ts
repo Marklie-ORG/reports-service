@@ -34,7 +34,11 @@ export const reportsValidationRules: ValidationRule[] = [
     method: "PUT",
     schema: z.array(ProviderConfigSchema),
   },
-
+  {
+    path: "/api/scheduling-options/delete",
+    method: "PUT",
+    schema: ScheduleBulkActionRequestSchema,
+  },
   {
     path: "/api/scheduling-options/schedule",
     method: "POST",
@@ -50,11 +54,7 @@ export const reportsValidationRules: ValidationRule[] = [
     method: "PUT",
     schema: ScheduleBulkActionRequestSchema,
   },
-  {
-    path: "/api/scheduling-options/delete",
-    method: "PUT",
-    schema: ScheduleBulkActionRequestSchema,
-  },
+  
   {
     path: "/api/scheduling-options/activate",
     method: "PUT",

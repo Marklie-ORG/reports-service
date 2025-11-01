@@ -23,6 +23,8 @@ export class TemplatesController extends Router {
       "/template-from-option",
       this.createTemplateFromOption.bind(this),
     );
+    this.get("/all", this.getAllTemplates.bind(this));
+    this.get("/:templateUuid", this.getTemplateByUuid.bind(this));
   }
 
   private async createOptionFromTemplate(ctx: Context) {
@@ -54,6 +56,18 @@ export class TemplatesController extends Router {
       body.optionUuid,
       body.params,
     );
+    ctx.status = 200;
+  }
+
+  private async getAllTemplates(ctx: Context) {
+    ctx.body = await this.templateService.getAllTemplates();
+    ctx.status = 200;
+  }
+
+  private async getTemplateByUuid(ctx: Context) {
+    const { templateUuid } = ctx.params;
+
+    ctx.body = await this.templateService.getTemplateByUuid(templateUuid);
     ctx.status = 200;
   }
 }

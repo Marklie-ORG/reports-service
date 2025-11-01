@@ -8,7 +8,7 @@ import {
   SchedulingTemplate,
 } from "marklie-ts-core";
 import type { ReportScheduleRequest } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces";
-import { ReportQueueService } from "./ReportsQueueService";
+import { ReportQueueService } from "./ReportsQueueService.js";
 import { ReportsUtil } from "../utils/ReportsUtil.js";
 import { CronUtil } from "../utils/CronUtil.js";
 import { Temporal } from "@js-temporal/polyfill";
@@ -286,6 +286,8 @@ export class SchedulingTemplateService {
     tpl.name =
       params?.name ?? (option.customization?.title || "Untitled template");
 
+    tpl.description = params?.description ?? "";
+
     tpl.schedule = {
       timezone: option.schedule.timezone,
       datePreset: option.schedule.datePreset,
@@ -343,5 +345,21 @@ export class SchedulingTemplateService {
 
     await em.persistAndFlush(tpl);
     return tpl;
+  }
+
+  async getAllTemplates(): Promise<SchedulingTemplate[]> {
+    const database = await Database.getInstance();
+    const em = database.em.fork();
+    const templates = await em.find(SchedulingTemplate, {});
+    return templates;
+  }
+
+  async getTemplateByUuid(templateUuid: string): Promise<SchedulingTemplate> {
+    const database = await Database.getInstance();
+    const em = database.em.fork();
+    const template = await em.findOneOrFail(SchedulingTemplate, {
+      uuid: templateUuid,
+    });
+    return template;
   }
 }
