@@ -9,7 +9,6 @@ import {
 import { Log } from "marklie-ts-core/dist/lib/classes/Logger.js";
 import { ReportsConfigService } from "../config/config.js";
 
-const database = await Database.getInstance();
 const logger = Log.getInstance().extend("facebook-api");
 const config = ReportsConfigService.getInstance();
 
@@ -51,15 +50,11 @@ export class FacebookApi {
     return this.organizationUuid;
   }
 
-  public setAccountId(accountId: string) {
-    // instance setter if you need it
-    this.accountId = accountId;
-  }
-
   static async create(
     organizationUuid: string,
     accountId?: string,
   ): Promise<FacebookApi> {
+    const database = await Database.getInstance();
     const tokenRecord = await database.em.findOne(OrganizationToken, {
       organization: organizationUuid,
     });

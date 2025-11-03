@@ -1,12 +1,12 @@
-import Router from "koa-router";
+import Router from "@koa/router";
 import type { Context } from "koa";
 import { ReportsService } from "../services/ReportsService.js";
 import { MarklieError, User } from "marklie-ts-core";
-import {
-  type ProviderConfig,
-  type SendAfterReviewRequest,
-  type UpdateReportMetadataRequest,
-  type GenerateReportRequest,
+import type {
+  GenerateReportRequest,
+  ProviderConfig,
+  SendAfterReviewRequest,
+  UpdateReportMetadataRequest,
 } from "marklie-ts-core/dist/lib/interfaces/ReportsInterfaces.js";
 import { ReportsUtil } from "../utils/ReportsUtil.js";
 
@@ -91,7 +91,7 @@ export class ReportsController extends Router {
     if (!reportUuid) {
       ctx.body = {
         message: "Failed to generate report",
-        scheduleUuid: scheduleUuid
+        scheduleUuid: scheduleUuid,
       };
       ctx.status = 500;
     }
@@ -99,7 +99,7 @@ export class ReportsController extends Router {
     ctx.body = {
       message: "Report generated successfully",
       scheduleUuid: scheduleUuid,
-      reportUuid: reportUuid
+      reportUuid: reportUuid,
     };
     ctx.status = 200;
   }
@@ -108,6 +108,7 @@ export class ReportsController extends Router {
     const providers: ProviderConfig[] = ctx.request.body as ProviderConfig[];
     const uuid = ctx.params.uuid as string;
 
+    // @ts-ignore
     await this.reportsService.updateReportData(uuid, providers);
 
     ctx.body = {

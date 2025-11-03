@@ -12,7 +12,6 @@ import {
 } from "marklie-ts-core";
 import type { SectionData } from "marklie-ts-core/dist/lib/interfaces/SchedulesInterfaces.js";
 
-const database = await Database.getInstance();
 const logger = Log.getInstance().extend("facebook-provider");
 
 export class FacebookProvider implements AdsProvider {
@@ -35,6 +34,7 @@ export class FacebookProvider implements AdsProvider {
     clientUuid: string,
     datePreset: string,
   ): Promise<SectionData[]> {
+    const database = await Database.getInstance();
     if (!this.api || !this.fetcher || !this.builder) {
       throw new Error("Provider not authenticated");
     }

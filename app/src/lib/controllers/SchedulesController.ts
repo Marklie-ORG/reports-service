@@ -1,4 +1,4 @@
-import Router from "koa-router";
+import Router from "@koa/router";
 import type { Context } from "koa";
 import { MarklieError, User } from "marklie-ts-core";
 import { SchedulesService } from "../services/SchedulesService.js";
