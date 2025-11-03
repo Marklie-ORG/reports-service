@@ -114,13 +114,20 @@ export const UpdateAdAccountCustomFormulaRequestSchema = z.object({
 export const CreateOptionFromTemplateRequestSchema = z.object({
   templateUuid: UuidSchema,
   clientUuid: UuidSchema,
-  organizationUuid: UuidSchema,
 });
+
+export const TemplateOriginSchema = z.enum(['system', 'user']);
+export const TemplateVisibilitySchema = z.enum(['private', 'public']);
 
 export const CreateTemplateFromOptionRequestSchema = z.object({
   optionUuid: UuidSchema,
-  organizationUuid: UuidSchema,
-  name: z.string(),
+  params: z.object({
+    name: z.string(),
+    description: z.string(),
+    origin: TemplateOriginSchema,
+    visibility: TemplateVisibilitySchema,
+    organizationUuid: z.string().nullable(),
+  }).partial(),
 });
 
 export type GenerateReportRequest = z.infer<typeof GenerateReportRequestSchema>;
